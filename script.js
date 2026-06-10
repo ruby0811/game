@@ -218,7 +218,8 @@ const genresData = [
                 image: "images/마리오.png",
                 def: "발판(플랫폼)을 이용해 점프하고 장애물을 피하며 진행하는 고전적이고 인기 있는 장르입니다.",
                 features: ["점프 및 이동 컨트롤", "장애물 회피", "퍼즐/수집 요소 결합"],
-                examples: "슈퍼 마리오, 소닉, 할로우 나이트, 셀레스테"
+                examples: "슈퍼 마리오, 소닉, 할로우 나이트, 셀레스테",
+                hasGame: "platformer"
             },
             {
                 name: "퍼즐 (Puzzle) 🧩",
@@ -407,8 +408,23 @@ function renderSubGenreDetails(sub, parentImage) {
             <div class="sub-examples">
                 <strong>대표 게임:</strong> ${sub.examples}
             </div>
+            ${sub.hasGame ? `<button id="btn-play-minigame" class="play-game-btn" style="margin-top:20px; width:100%; padding: 15px; font-size: 16px; background-color: #e94560; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.3s;">🎮 미니게임 체험하기</button>` : ''}
         </div>
     `;
+
+    if (sub.hasGame) {
+        setTimeout(() => {
+            const btn = document.getElementById('btn-play-minigame');
+            if (btn) {
+                btn.onclick = () => {
+                    const imgContainer = document.querySelector('.modal-sub-image');
+                    if(imgContainer && typeof MiniGames !== 'undefined' && MiniGames[sub.hasGame]) {
+                        MiniGames[sub.hasGame].init(imgContainer);
+                    }
+                };
+            }
+        }, 0);
+    }
 }
 
 function init() {
