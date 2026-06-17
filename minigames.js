@@ -682,14 +682,17 @@ const MiniGames = {
         timerInterval: null,
         targets: [],
         lastSpawnTime: 0,
-        spawnRate: 800, // spawn target every 0.8s
+        spawnRate: 800,
+        mouseX: 400,
+        mouseY: 300,
+        isShooting: false,
+        shootTimer: 0,
         
         init() {
             const { overlay, gameContainer } = MiniGames._createOverlay();
             this.overlay = overlay;
             this.container = gameContainer;
 
-            // Use full space for the aim trainer
             this.container.style.width = '800px'; 
             this.container.style.height = '600px';
 
@@ -702,13 +705,12 @@ const MiniGames = {
             this.canvas.style.left = '0';
             this.canvas.style.width = '100%';
             this.canvas.style.height = '100%';
-            this.canvas.style.backgroundColor = '#1a1a2e';
+            this.canvas.style.backgroundColor = '#2d3436';
             this.canvas.style.cursor = 'crosshair';
             
             this.ctx = this.canvas.getContext('2d');
             this.container.appendChild(this.canvas);
 
-            // Initial UI
             const uiDiv = document.createElement('div');
             uiDiv.id = 'fps-ui';
             uiDiv.style.position = 'absolute';
@@ -724,13 +726,13 @@ const MiniGames = {
             uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
 
             const title = document.createElement('h2');
-            title.innerText = '🎯 FPS 에임 훈련장';
+            title.innerText = '🎯 몬스터 슈팅 훈련장';
             title.style.color = '#fff';
-            title.style.fontSize = '2rem';
+            title.style.fontSize = '2.5rem';
             title.style.marginBottom = '10px';
 
             const desc = document.createElement('p');
-            desc.innerText = '나타나는 과녁을 클릭해 맞추세요!\n제한시간: 15초';
+            desc.innerText = '나타나는 괴물들을 총으로 쏘세요!\n제한시간: 15초';
             desc.style.color = '#ccc';
             desc.style.textAlign = 'center';
             desc.style.marginBottom = '30px';
@@ -758,12 +760,19 @@ const MiniGames = {
             uiDiv.appendChild(closeBtn);
             this.container.appendChild(uiDiv);
 
-            // Event bindings
             this.handleInput = this.handleInput.bind(this);
+            this.handleMove = this.handleMove.bind(this);
+            
             this.canvas.addEventListener('mousedown', this.handleInput);
+            this.canvas.addEventListener('mousemove', this.handleMove);
             this.canvas.addEventListener('touchstart', (e) => {
                 e.preventDefault();
+                this.handleMove(e.touches[0]);
                 this.handleInput(e.touches[0]);
+            }, {passive: false});
+            this.canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                this.handleMove(e.touches[0]);
             }, {passive: false});
 
             startBtn.onclick = () => {
@@ -801,9 +810,16 @@ const MiniGames = {
             cancelAnimationFrame(this.animationId);
             clearInterval(this.timerInterval);
             this.canvas.removeEventListener('mousedown', this.handleInput);
+            this.canvas.removeEventListener('mousemove', this.handleMove);
             if(this.overlay) {
                 this.overlay.remove();
             }
+        },
+
+        handleMove(e) {
+            const rect = this.canvas.getBoundingClientRect();
+            this.mouseX = e.clientX - rect.left;
+            this.mouseY = e.clientY - rect.top;
         },
 
         handleInput(e) {
@@ -812,19 +828,21 @@ const MiniGames = {
             const rect = this.canvas.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const clickY = e.clientY - rect.top;
+            
+            this.mouseX = clickX;
+            this.mouseY = clickY;
+            this.isShooting = true;
+            this.shootTimer = 10; // frames for recoil animation
 
-            // Check hit from newest to oldest
             for (let i = this.targets.length - 1; i >= 0; i--) {
                 const t = this.targets[i];
+                if (t.hit) continue;
                 const dist = Math.hypot(t.x - clickX, t.y - clickY);
-                if (dist <= t.radius) {
-                    // Hit!
+                if (dist <= t.radius * 1.5) { // generous hit box for emojis
                     this.score++;
                     t.hit = true;
-                    // Visual feedback
-                    t.radius *= 1.5;
-                    t.opacity = 0; // Trigger fade out
-                    break;
+                    t.radius *= 1.2;
+                    break; // Only hit one per click
                 }
             }
         },
@@ -837,30 +855,28 @@ const MiniGames = {
         },
 
         update(timestamp) {
-            // Spawn new targets
             if (timestamp - this.lastSpawnTime > this.spawnRate) {
                 this.spawnTarget();
                 this.lastSpawnTime = timestamp;
-                // Make it slightly faster over time
-                this.spawnRate = Math.max(300, this.spawnRate - 20); 
+                this.spawnRate = Math.max(400, this.spawnRate - 20); 
             }
 
-            // Update targets
+            if (this.isShooting) {
+                this.shootTimer--;
+                if (this.shootTimer <= 0) this.isShooting = false;
+            }
+
             for (let i = this.targets.length - 1; i >= 0; i--) {
                 const t = this.targets[i];
                 if (!t.hit) {
-                    // Shrink over time
                     const age = timestamp - t.spawnTime;
                     if (age > t.lifespan) {
-                        this.targets.splice(i, 1); // Remove missed target
+                        this.targets.splice(i, 1);
                     } else {
-                        // Calculate radius based on age
                         const lifePercent = age / t.lifespan;
-                        // Starts at radius, shrinks to 0
                         t.currentRadius = t.radius * (1 - lifePercent);
                     }
                 } else {
-                    // Fading out hit animation
                     t.fadeTimer -= 16;
                     if (t.fadeTimer <= 0) {
                         this.targets.splice(i, 1);
@@ -870,66 +886,77 @@ const MiniGames = {
         },
 
         spawnTarget() {
-            const radius = 30 + Math.random() * 20; // 30 to 50
+            const radius = 30 + Math.random() * 20; 
             const x = radius + Math.random() * (this.canvas.width - radius * 2);
             const y = radius + Math.random() * (this.canvas.height - radius * 2);
             
+            const monsters = ['👾', '🧟', '👽', '👹', '👻'];
+            const monster = monsters[Math.floor(Math.random() * monsters.length)];
+
             this.targets.push({
                 x, y, 
                 radius, 
                 currentRadius: radius,
                 spawnTime: performance.now(),
-                lifespan: 1500 + Math.random() * 1000, // 1.5 to 2.5 seconds
+                lifespan: 1500 + Math.random() * 1000, 
                 hit: false,
-                opacity: 1,
-                fadeTimer: 200, // ms for hit animation
-                color: `hsl(${Math.random() * 360}, 80%, 60%)`
+                fadeTimer: 300, 
+                monster
             });
         },
 
         draw() {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-            // Draw targets
+            // Draw targets (monsters)
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
             for (const t of this.targets) {
-                this.ctx.beginPath();
-                this.ctx.arc(t.x, t.y, t.hit ? t.radius : Math.max(0.1, t.currentRadius), 0, Math.PI * 2);
-                
                 if (t.hit) {
-                    this.ctx.fillStyle = `rgba(255, 255, 255, ${t.fadeTimer / 200})`;
+                    this.ctx.font = `${t.radius * 2}px sans-serif`;
+                    this.ctx.globalAlpha = Math.max(0, t.fadeTimer / 300);
+                    this.ctx.fillText('💥', t.x, t.y);
+                    this.ctx.globalAlpha = 1.0;
                 } else {
-                    this.ctx.fillStyle = t.color;
-                    this.ctx.shadowBlur = 10;
-                    this.ctx.shadowColor = t.color;
-                }
-                
-                this.ctx.fill();
-                this.ctx.shadowBlur = 0; // Reset
-                
-                // Bullseye rings
-                if (!t.hit && t.currentRadius > 10) {
-                    this.ctx.beginPath();
-                    this.ctx.arc(t.x, t.y, t.currentRadius * 0.6, 0, Math.PI * 2);
-                    this.ctx.fillStyle = '#fff';
-                    this.ctx.fill();
-                    
-                    this.ctx.beginPath();
-                    this.ctx.arc(t.x, t.y, t.currentRadius * 0.2, 0, Math.PI * 2);
-                    this.ctx.fillStyle = t.color;
-                    this.ctx.fill();
+                    this.ctx.font = `${Math.max(1, t.currentRadius * 2)}px sans-serif`;
+                    this.ctx.fillText(t.monster, t.x, t.y);
                 }
             }
 
-            // UI overlay (Score & Timer)
+            // Draw Gun
+            this.ctx.save();
+            // Gun follows mouse X, stays at bottom
+            const gunX = this.canvas.width / 2 + (this.mouseX - this.canvas.width / 2) * 0.3 + 50;
+            let gunY = this.canvas.height + 20;
+            
+            // Recoil animation
+            if (this.isShooting) {
+                gunY += 30; // recoil down
+            }
+
+            this.ctx.font = '150px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'bottom';
+            this.ctx.fillText('🔫', gunX, gunY);
+            
+            // Muzzle flash
+            if (this.isShooting) {
+                this.ctx.font = '80px sans-serif';
+                this.ctx.fillText('✨', gunX - 60, gunY - 120);
+            }
+            this.ctx.restore();
+
+            // UI overlay
             this.ctx.fillStyle = '#fff';
             this.ctx.font = 'bold 24px "Pretendard", sans-serif';
             this.ctx.textAlign = 'left';
-            this.ctx.fillText(`🎯 명중: ${this.score}`, 20, 40);
+            this.ctx.textBaseline = 'top';
+            this.ctx.fillText(`🎯 처치: ${this.score}`, 20, 20);
             
             this.ctx.textAlign = 'right';
             this.ctx.fillStyle = this.timeLeft <= 3 ? '#ff4757' : '#fff';
-            this.ctx.fillText(`⏱ 시간: ${this.timeLeft}초`, this.canvas.width - 20, 40);
-            this.ctx.textAlign = 'left'; // Reset
+            this.ctx.fillText(`⏱ 시간: ${this.timeLeft}초`, this.canvas.width - 20, 20);
+            this.ctx.textAlign = 'left';
         },
 
         gameOver() {
@@ -958,7 +985,7 @@ const MiniGames = {
             title.style.marginBottom = '20px';
 
             const scoreText = document.createElement('p');
-            scoreText.innerText = `최종 타수: ${this.score}개`;
+            scoreText.innerText = `최종 처치: ${this.score}마리 몬스터`;
             scoreText.style.color = '#fff';
             scoreText.style.marginBottom = '30px';
             scoreText.style.fontSize = '1.5rem';
