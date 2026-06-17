@@ -245,7 +245,8 @@ const genresData = [
                 image: "images/리듬.jpg",
                 def: "음악의 비트에 맞춰 정확한 타이밍에 버튼을 누르거나 동작을 취하는 장르입니다.",
                 features: ["음악 비트 동기화", "정확한 반응 속도", "점수 및 콤보 시스템"],
-                examples: "비트 세이버, DJ맥스, 오스(osu!), 태고의 달인"
+                examples: "비트 세이버, DJ맥스, 오스(osu!), 태고의 달인",
+                hasGame: "rhythm"
             },
             {
                 name: "소울라이크 (Soulslike) 🗡️",

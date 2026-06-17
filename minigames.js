@@ -2529,5 +2529,356 @@ const MiniGames = {
             
             if (this.overlay) this.overlay.remove();
         }
+    },
+
+    rhythm: {
+        overlay: null,
+        container: null,
+        canvas: null,
+        ctx: null,
+        animationId: null,
+        isPlaying: false,
+
+        audio: null,
+        notes: [], // { lane: 0~3, y: float, hit: boolean }
+        keys: { 'd': false, 'f': false, 'j': false, 'k': false },
+        laneKeys: ['d', 'f', 'j', 'k'],
+        
+        score: 0,
+        combo: 0,
+        maxCombo: 0,
+        
+        hitLineY: 500, // y coordinate of the judgment line
+        noteSpeed: 8,
+        lastSpawnTime: 0,
+        spawnInterval: 400, // ms between notes
+        
+        effects: [], // floating text like "PERFECT", "MISS"
+
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
+
+            this.canvas = document.createElement('canvas');
+            this.canvas.width = 800;
+            this.canvas.height = 600;
+            this.canvas.style.display = 'block';
+            this.canvas.style.width = '100%';
+            this.canvas.style.height = '100%';
+            this.container.appendChild(this.canvas);
+            this.ctx = this.canvas.getContext('2d');
+
+            this.audio = new Audio('sounds/track.mp3');
+            this.audio.loop = false;
+            
+            this.notes = [];
+            this.effects = [];
+            this.score = 0;
+            this.combo = 0;
+            this.maxCombo = 0;
+            this.lastSpawnTime = 0;
+
+            const uiDiv = this._buildStartUI();
+            this.container.appendChild(uiDiv);
+
+            this._onKeyDown = this._onKeyDown.bind(this);
+            this._onKeyUp = this._onKeyUp.bind(this);
+            window.addEventListener('keydown', this._onKeyDown);
+            window.addEventListener('keyup', this._onKeyUp);
+
+            this._loop = this._loop.bind(this);
+        },
+
+        _buildStartUI() {
+            const ui = document.createElement('div');
+            ui.id = 'rhythm-start-ui';
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(10,10,20,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+            
+            ui.innerHTML = `
+                <h1 style="color:#00ffff;font-size:4rem;font-family:sans-serif;letter-spacing:3px;margin-bottom:20px;text-shadow:0 0 10px #00ffff;">NEON BEAT</h1>
+                <p style="color:#fff;font-size:1.2rem;text-align:center;line-height:1.8;margin-bottom:40px;">
+                    떨어지는 노트를 판정선에 맞춰 누르세요!<br><br>
+                    <b style="color:#00ffff;font-size:1.5rem;">[ D ] [ F ] [ J ] [ K ]</b>
+                </p>
+            `;
+
+            const btnDiv = document.createElement('div');
+            btnDiv.style.display = 'flex';
+            btnDiv.style.gap = '20px';
+
+            const startBtn = document.createElement('button');
+            startBtn.innerText = 'START';
+            startBtn.style.cssText = 'padding:15px 40px;background:transparent;color:#00ffff;border:2px solid #00ffff;border-radius:25px;font-size:1.5rem;cursor:pointer;font-weight:bold;box-shadow:0 0 15px rgba(0,255,255,0.5);transition:all 0.2s;';
+            startBtn.onmouseover = () => { startBtn.style.background = '#00ffff'; startBtn.style.color = '#000'; };
+            startBtn.onmouseout = () => { startBtn.style.background = 'transparent'; startBtn.style.color = '#00ffff'; };
+            startBtn.onclick = () => {
+                ui.remove();
+                this._startGame();
+            };
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = 'EXIT';
+            closeBtn.style.cssText = 'padding:15px 40px;background:transparent;color:#fff;border:2px solid #fff;border-radius:25px;font-size:1.5rem;cursor:pointer;font-weight:bold;transition:all 0.2s;';
+            closeBtn.onmouseover = () => { closeBtn.style.background = '#fff'; closeBtn.style.color = '#000'; };
+            closeBtn.onmouseout = () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#fff'; };
+            closeBtn.onclick = () => this.close();
+
+            btnDiv.appendChild(startBtn);
+            btnDiv.appendChild(closeBtn);
+            ui.appendChild(btnDiv);
+
+            return ui;
+        },
+
+        _startGame() {
+            this.isPlaying = true;
+            this.audio.currentTime = 0;
+            this.audio.play().catch(e => console.error("Audio play failed:", e));
+            
+            // Audio end listener
+            this.audio.onended = () => {
+                this._endGame();
+            };
+
+            this.lastSpawnTime = performance.now();
+            this._loop();
+        },
+
+        _onKeyDown(e) {
+            const key = e.key.toLowerCase();
+            if (this.laneKeys.includes(key) && !this.keys[key]) {
+                this.keys[key] = true;
+                if (this.isPlaying) this._checkHit(this.laneKeys.indexOf(key));
+            }
+        },
+
+        _onKeyUp(e) {
+            const key = e.key.toLowerCase();
+            if (this.laneKeys.includes(key)) {
+                this.keys[key] = false;
+            }
+        },
+
+        _checkHit(laneIndex) {
+            // Find the lowest note in this lane that hasn't been hit yet
+            let targetNote = null;
+            let targetIdx = -1;
+            
+            for (let i = 0; i < this.notes.length; i++) {
+                const note = this.notes[i];
+                if (!note.hit && note.lane === laneIndex && note.y > this.hitLineY - 150) {
+                    if (!targetNote || note.y > targetNote.y) {
+                        targetNote = note;
+                        targetIdx = i;
+                    }
+                }
+            }
+
+            if (targetNote) {
+                const diff = Math.abs(targetNote.y + 10 - this.hitLineY); // 10 is half note height
+                let result = '';
+                let color = '';
+                
+                if (diff < 20) {
+                    result = 'PERFECT'; color = '#ffff00';
+                    this.score += 100;
+                    this.combo++;
+                } else if (diff < 50) {
+                    result = 'GREAT'; color = '#00ff00';
+                    this.score += 50;
+                    this.combo++;
+                } else if (diff < 100) {
+                    result = 'GOOD'; color = '#00ffff';
+                    this.score += 10;
+                    this.combo = 0;
+                } else {
+                    result = 'MISS'; color = '#ff0000';
+                    this.combo = 0;
+                }
+                
+                targetNote.hit = true;
+                if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+                
+                // Add effect
+                this.effects.push({ text: result, color: color, y: this.hitLineY - 50, life: 1.0 });
+                if(this.combo >= 2) {
+                    this.effects.push({ text: this.combo + ' COMBO', color: '#fff', y: this.hitLineY - 80, life: 1.0 });
+                }
+                
+                // Remove note
+                this.notes.splice(targetIdx, 1);
+            }
+        },
+
+        _spawnNotes(time) {
+            // Simple procedural generation based on time
+            if (time - this.lastSpawnTime > this.spawnInterval) {
+                this.lastSpawnTime = time;
+                
+                // Determine pattern
+                const rand = Math.random();
+                if (rand < 0.7) {
+                    // Single note
+                    const lane = Math.floor(Math.random() * 4);
+                    this.notes.push({ lane, y: -20, hit: false });
+                } else if (rand < 0.9) {
+                    // Double note
+                    let l1 = Math.floor(Math.random() * 4);
+                    let l2 = (l1 + 1 + Math.floor(Math.random() * 3)) % 4;
+                    this.notes.push({ lane: l1, y: -20, hit: false });
+                    this.notes.push({ lane: l2, y: -20, hit: false });
+                }
+                // Vary interval slightly for rhythm feel
+                this.spawnInterval = 300 + Math.random() * 300; 
+            }
+        },
+
+        _loop(time) {
+            if (!this.isPlaying) return;
+            this.animationId = requestAnimationFrame(this._loop);
+
+            if (time) this._spawnNotes(time);
+
+            // Update Notes
+            for (let i = this.notes.length - 1; i >= 0; i--) {
+                const note = this.notes[i];
+                note.y += this.noteSpeed;
+
+                // Missed note
+                if (note.y > this.hitLineY + 50) {
+                    this.combo = 0;
+                    this.effects.push({ text: 'MISS', color: '#ff0000', y: this.hitLineY, life: 1.0 });
+                    this.notes.splice(i, 1);
+                }
+            }
+
+            // Update Effects
+            for (let i = this.effects.length - 1; i >= 0; i--) {
+                this.effects[i].life -= 0.02;
+                this.effects[i].y -= 1;
+                if (this.effects[i].life <= 0) {
+                    this.effects.splice(i, 1);
+                }
+            }
+
+            this._draw();
+        },
+
+        _draw() {
+            this.ctx.fillStyle = '#0a0a14';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            const laneWidth = 80;
+            const startX = (this.canvas.width - (laneWidth * 4)) / 2;
+
+            // Draw lanes
+            this.ctx.strokeStyle = '#222';
+            this.ctx.lineWidth = 2;
+            for (let i = 0; i <= 4; i++) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(startX + i * laneWidth, 0);
+                this.ctx.lineTo(startX + i * laneWidth, this.canvas.height);
+                this.ctx.stroke();
+            }
+
+            // Draw Hit Line
+            this.ctx.shadowBlur = 10;
+            this.ctx.shadowColor = '#00ffff';
+            this.ctx.fillStyle = '#00ffff';
+            this.ctx.fillRect(startX, this.hitLineY - 2, laneWidth * 4, 4);
+            this.ctx.shadowBlur = 0;
+
+            // Draw Key Presses
+            const colors = ['#ff0055', '#00ffcc', '#00ffcc', '#ff0055'];
+            for (let i = 0; i < 4; i++) {
+                if (this.keys[this.laneKeys[i]]) {
+                    const gradient = this.ctx.createLinearGradient(0, this.hitLineY, 0, this.canvas.height);
+                    gradient.addColorStop(0, colors[i] + 'aa');
+                    gradient.addColorStop(1, 'transparent');
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillRect(startX + i * laneWidth + 2, this.hitLineY, laneWidth - 4, this.canvas.height - this.hitLineY);
+                    
+                    // Pressed button effect
+                    this.ctx.fillStyle = colors[i];
+                    this.ctx.fillRect(startX + i * laneWidth + 2, this.hitLineY - 5, laneWidth - 4, 10);
+                }
+            }
+
+            // Draw Notes
+            for (const note of this.notes) {
+                this.ctx.fillStyle = colors[note.lane];
+                this.ctx.shadowBlur = 15;
+                this.ctx.shadowColor = colors[note.lane];
+                // Note shape
+                this.ctx.fillRect(startX + note.lane * laneWidth + 10, note.y, laneWidth - 20, 20);
+                this.ctx.fillStyle = '#fff';
+                this.ctx.fillRect(startX + note.lane * laneWidth + 25, note.y + 5, laneWidth - 50, 10);
+                this.ctx.shadowBlur = 0;
+            }
+
+            // Draw UI (Score & Combo)
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '24px sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(`SCORE: ${this.score}`, 20, 40);
+            
+            // Draw Key Labels
+            this.ctx.font = 'bold 20px sans-serif';
+            this.ctx.textAlign = 'center';
+            for (let i = 0; i < 4; i++) {
+                this.ctx.fillStyle = this.keys[this.laneKeys[i]] ? '#fff' : '#666';
+                this.ctx.fillText(this.laneKeys[i].toUpperCase(), startX + i * laneWidth + laneWidth/2, this.hitLineY + 40);
+            }
+
+            // Draw Effects
+            for (const eff of this.effects) {
+                this.ctx.fillStyle = eff.color;
+                this.ctx.globalAlpha = eff.life;
+                this.ctx.font = eff.text.includes('COMBO') ? 'italic bold 36px sans-serif' : 'bold 40px sans-serif';
+                this.ctx.shadowBlur = 10;
+                this.ctx.shadowColor = eff.color;
+                this.ctx.fillText(eff.text, this.canvas.width / 2, eff.y);
+                this.ctx.shadowBlur = 0;
+                this.ctx.globalAlpha = 1.0;
+            }
+        },
+
+        _endGame() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+
+            const ui = document.createElement('div');
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;';
+            
+            ui.innerHTML = `
+                <h1 style="color:#00ffff;font-size:5rem;margin-bottom:10px;text-shadow:0 0 20px #00ffff;">STAGE CLEAR</h1>
+                <h2 style="color:#fff;font-size:3rem;margin-bottom:10px;">SCORE: ${this.score}</h2>
+                <h3 style="color:#00ffcc;font-size:2rem;margin-bottom:50px;">MAX COMBO: ${this.maxCombo}</h3>
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = 'FINISH';
+            closeBtn.style.cssText = 'padding:15px 50px;background:#00ffff;color:#000;border:none;border-radius:30px;font-size:1.5rem;font-weight:bold;cursor:pointer;box-shadow:0 0 20px rgba(0,255,255,0.6);';
+            closeBtn.onclick = () => this.close();
+            ui.appendChild(closeBtn);
+
+            this.container.appendChild(ui);
+        },
+
+        close() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            
+            if (this.audio) {
+                this.audio.pause();
+                this.audio.currentTime = 0;
+            }
+
+            window.removeEventListener('keydown', this._onKeyDown);
+            window.removeEventListener('keyup', this._onKeyUp);
+            
+            if (this.overlay) this.overlay.remove();
+        }
     }
 };
