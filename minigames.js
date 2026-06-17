@@ -2054,5 +2054,440 @@ const MiniGames = {
             window.removeEventListener('keyup', this._onKeyUp);
             if (this.overlay) this.overlay.remove();
         }
+    },
+
+    horror: {
+        overlay: null,
+        container: null,
+        animationId: null,
+        isPlaying: false,
+
+        // Three.js
+        scene: null,
+        camera: null,
+        renderer: null,
+        controls: null,
+        raycaster: null,
+        
+        // Lighting
+        flashlight: null,
+        flickerTimer: 0,
+
+        // Entities
+        notes: [],
+        collectedNotes: 0,
+        totalNotes: 5,
+        enemy: null,
+
+        // Movement
+        moveForward: false,
+        moveBackward: false,
+        moveLeft: false,
+        moveRight: false,
+        velocity: null,
+        direction: null,
+        prevTime: 0,
+        
+        // Maze collision
+        walls: [],
+
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
+
+            this.container.style.width = '100vw';
+            this.container.style.height = '100vh';
+            this.container.style.maxWidth = '100vw';
+            this.container.style.maxHeight = '100vh';
+            this.container.style.borderRadius = '0';
+            this.container.style.backgroundColor = '#000';
+
+            if (!window.THREE || !THREE.PointerLockControls) {
+                alert("Three.js 로딩 오류. 새로고침 후 다시 시도해주세요.");
+                this.close(); return;
+            }
+
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x000000);
+            this.scene.fog = new THREE.FogExp2(0x000000, 0.05); // VERY thick dark fog
+
+            this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 100);
+            this.camera.position.y = 5;
+
+            // Flashlight attached to camera
+            this.flashlight = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.5, 1);
+            this.flashlight.position.set(0, 0, 0);
+            this.flashlight.target.position.set(0, 0, -1);
+            this.camera.add(this.flashlight);
+            this.camera.add(this.flashlight.target);
+            this.scene.add(this.camera);
+
+            // Very faint ambient light
+            this.scene.add(new THREE.AmbientLight(0x111111));
+
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+            this.container.appendChild(this.renderer.domElement);
+
+            this.controls = new THREE.PointerLockControls(this.camera, document.body);
+            this.raycaster = new THREE.Raycaster();
+
+            this.velocity = new THREE.Vector3();
+            this.direction = new THREE.Vector3();
+
+            this._buildMaze();
+            this._spawnEnemy();
+            this._buildHUD();
+
+            const uiDiv = this._buildStartUI();
+            this.container.appendChild(uiDiv);
+
+            this._onKeyDown = this._onKeyDown.bind(this);
+            this._onKeyUp = this._onKeyUp.bind(this);
+            this._onClick = this._onClick.bind(this);
+            this._onResize = this._onResize.bind(this);
+
+            document.addEventListener('keydown', this._onKeyDown);
+            document.addEventListener('keyup', this._onKeyUp);
+            this.renderer.domElement.addEventListener('click', this._onClick);
+            window.addEventListener('resize', this._onResize);
+
+            this._animate = this._animate.bind(this);
+        },
+
+        _buildMaze() {
+            const floorGeo = new THREE.PlaneGeometry(200, 200);
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            this.scene.add(floor);
+
+            // Simple procedurally generated maze (grid based)
+            const wallGeo = new THREE.BoxGeometry(10, 15, 10);
+            const wallMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a }); // Dark walls
+            
+            const gridSize = 10;
+            const mazeMap = [];
+            
+            // Random scatter walls
+            for (let i = 0; i < 60; i++) {
+                const x = (Math.floor(Math.random() * gridSize) - gridSize/2) * 10;
+                const z = (Math.floor(Math.random() * gridSize) - gridSize/2) * 10;
+                
+                // Keep center clear for spawn
+                if (Math.abs(x) < 15 && Math.abs(z) < 15) continue;
+                
+                const wall = new THREE.Mesh(wallGeo, wallMat);
+                wall.position.set(x, 7.5, z);
+                this.scene.add(wall);
+                this.walls.push(wall);
+                
+                mazeMap.push({x, z});
+            }
+
+            // Spawn Notes (glowing floating cubes)
+            const noteGeo = new THREE.BoxGeometry(1, 1, 1);
+            const noteMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // Glows in dark
+            
+            let notesSpawned = 0;
+            while(notesSpawned < this.totalNotes) {
+                const nx = (Math.floor(Math.random() * gridSize) - gridSize/2) * 10;
+                const nz = (Math.floor(Math.random() * gridSize) - gridSize/2) * 10;
+                
+                // Avoid placing exactly inside a wall
+                if (mazeMap.some(w => w.x === nx && w.z === nz)) continue;
+                
+                const note = new THREE.Mesh(noteGeo, noteMat);
+                note.position.set(nx, 4, nz);
+                note.userData.isNote = true;
+                this.scene.add(note);
+                this.notes.push(note);
+                notesSpawned++;
+            }
+        },
+
+        _spawnEnemy() {
+            const enemyGroup = new THREE.Group();
+            
+            // Tall dark figure
+            const bodyGeo = new THREE.CylinderGeometry(1.5, 1.5, 12, 8);
+            const bodyMat = new THREE.MeshBasicMaterial({ color: 0x050505 }); // very dark, unaffected by light
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 6;
+            enemyGroup.add(body);
+            
+            // Glowing red eyes
+            const eyeGeo = new THREE.SphereGeometry(0.3, 8, 8);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(-0.5, 11, 1.4);
+            enemyGroup.add(eye1);
+            
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(0.5, 11, 1.4);
+            enemyGroup.add(eye2);
+
+            // Spawn far away
+            enemyGroup.position.set(60, 0, 60);
+            this.scene.add(enemyGroup);
+            this.enemy = enemyGroup;
+        },
+
+        _buildHUD() {
+            const hud = document.createElement('div');
+            hud.id = 'horror-hud';
+            hud.style.cssText = 'position:absolute;top:20px;left:20px;color:#fff;font-size:24px;font-family:monospace;pointer-events:none;z-index:10;text-shadow:0 0 5px #fff;';
+            hud.innerHTML = `쪽지: <span id="horror-score">0</span> / 5`;
+            
+            const crosshair = document.createElement('div');
+            crosshair.style.cssText = 'position:absolute;top:50%;left:50%;width:4px;height:4px;background:rgba(255,255,255,0.5);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:10;';
+            
+            this.container.appendChild(hud);
+            this.container.appendChild(crosshair);
+        },
+
+        _buildStartUI() {
+            const ui = document.createElement('div');
+            ui.id = 'horror-start-ui';
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+            
+            ui.innerHTML = `
+                <h1 style="color:#aa0000;font-size:4rem;font-family:serif;letter-spacing:5px;margin-bottom:20px;">어둠 속에서</h1>
+                <p style="color:#666;font-size:1.2rem;text-align:center;line-height:1.8;margin-bottom:40px;font-family:monospace;">
+                    이곳을 빠져나가려면 빛나는 쪽지 5장이 필요하다.<br>
+                    절대 뒤를 돌아보지 마라.<br><br>
+                    WASD: 이동 | 마우스: 손전등 | 좌클릭: 쪽지 획득
+                </p>
+            `;
+
+            const btnDiv = document.createElement('div');
+            btnDiv.style.display = 'flex';
+            btnDiv.style.gap = '20px';
+
+            const startBtn = document.createElement('button');
+            startBtn.innerText = '어둠 속으로';
+            startBtn.style.cssText = 'padding:15px 30px;background:transparent;color:#aa0000;border:1px solid #aa0000;font-size:1.2rem;cursor:pointer;font-family:serif;';
+            startBtn.onmouseover = () => { startBtn.style.background = '#aa0000'; startBtn.style.color = '#000'; };
+            startBtn.onmouseout = () => { startBtn.style.background = 'transparent'; startBtn.style.color = '#aa0000'; };
+            startBtn.onclick = () => {
+                ui.remove();
+                this.controls.lock();
+            };
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '포기하기';
+            closeBtn.style.cssText = 'padding:15px 30px;background:transparent;color:#444;border:1px solid #444;font-size:1.2rem;cursor:pointer;font-family:serif;';
+            closeBtn.onclick = () => this.close();
+
+            btnDiv.appendChild(startBtn);
+            btnDiv.appendChild(closeBtn);
+            ui.appendChild(btnDiv);
+
+            // Pointer lock events
+            this.controls.addEventListener('lock', () => {
+                this.isPlaying = true;
+                this.prevTime = performance.now();
+                if (!this.animationId) this._animate();
+            });
+
+            this.controls.addEventListener('unlock', () => {
+                this.isPlaying = false;
+                if(this.collectedNotes < this.totalNotes) {
+                    this.container.appendChild(ui); // Show pause/start screen again
+                }
+            });
+
+            return ui;
+        },
+
+        _onKeyDown(e) {
+            switch (e.code) {
+                case 'ArrowUp': case 'KeyW': this.moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': this.moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': this.moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': this.moveRight = true; break;
+            }
+        },
+
+        _onKeyUp(e) {
+            switch (e.code) {
+                case 'ArrowUp': case 'KeyW': this.moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': this.moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': this.moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': this.moveRight = false; break;
+            }
+        },
+
+        _onClick() {
+            if (!this.isPlaying) return;
+            
+            // Collect note
+            this.raycaster.setFromCamera(new THREE.Vector2(0,0), this.camera);
+            const intersects = this.raycaster.intersectObjects(this.notes);
+            
+            if (intersects.length > 0 && intersects[0].distance < 15) {
+                const note = intersects[0].object;
+                this.scene.remove(note);
+                this.notes = this.notes.filter(n => n !== note);
+                this.collectedNotes++;
+                
+                document.getElementById('horror-score').innerText = this.collectedNotes;
+                
+                if (this.collectedNotes >= this.totalNotes) {
+                    this._winGame();
+                }
+            }
+        },
+
+        _onResize() {
+            if (!this.camera || !this.renderer) return;
+            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        },
+
+        _animate() {
+            if (!this.isPlaying) return;
+            this.animationId = requestAnimationFrame(this._animate);
+
+            const time = performance.now();
+            const delta = (time - this.prevTime) / 1000;
+            this.prevTime = time;
+
+            // Player Movement
+            this.velocity.x -= this.velocity.x * 10.0 * delta;
+            this.velocity.z -= this.velocity.z * 10.0 * delta;
+
+            this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
+            this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
+            this.direction.normalize();
+
+            const moveSpeed = 80.0; // Walk speed
+            if (this.moveForward || this.moveBackward) this.velocity.z -= this.direction.z * moveSpeed * delta;
+            if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * moveSpeed * delta;
+
+            // Simple wall collision check (Raycaster)
+            const oldPos = this.camera.position.clone();
+            this.controls.moveRight(-this.velocity.x * delta);
+            this.controls.moveForward(-this.velocity.z * delta);
+            
+            // If out of bounds or inside wall, revert (crude collision)
+            let collided = false;
+            for(let w of this.walls) {
+                const box = new THREE.Box3().setFromObject(w);
+                // expand box slightly for player radius
+                box.min.x -= 2; box.min.z -= 2;
+                box.max.x += 2; box.max.z += 2;
+                
+                if(box.containsPoint(new THREE.Vector3(this.camera.position.x, 7.5, this.camera.position.z))) {
+                    collided = true;
+                    break;
+                }
+            }
+            if(collided) {
+                this.camera.position.copy(oldPos);
+            }
+
+            // Note floating animation
+            this.notes.forEach(note => {
+                note.position.y = 4 + Math.sin(time * 0.003 + note.position.x) * 0.5;
+                note.rotation.y += 0.02;
+                note.rotation.x += 0.01;
+            });
+
+            // Flashlight flicker effect
+            if (Math.random() < 0.02) {
+                this.flashlight.intensity = Math.random() > 0.5 ? 0 : 1.5;
+            } else {
+                this.flashlight.intensity = 1.5;
+            }
+
+            // Enemy AI
+            const dist = this.camera.position.distanceTo(this.enemy.position);
+            if (dist < 40) {
+                // Enemy moves towards player
+                const toPlayer = new THREE.Vector3().subVectors(this.camera.position, this.enemy.position);
+                toPlayer.y = 0;
+                toPlayer.normalize();
+                
+                // Moves faster when player has more notes
+                const enemySpeed = 5 + (this.collectedNotes * 4);
+                this.enemy.position.addScaledVector(toPlayer, enemySpeed * delta);
+                this.enemy.lookAt(this.camera.position);
+                
+                // Jump Scare
+                if (dist < 3) {
+                    this._jumpScare();
+                    return; // stop animating
+                }
+            }
+
+            this.renderer.render(this.scene, this.camera);
+        },
+
+        _jumpScare() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            this.controls.unlock();
+
+            const ui = document.createElement('div');
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#aa0000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;';
+            
+            // Scary face text
+            ui.innerHTML = `
+                <div style="color:#000;font-size:15rem;font-weight:900;line-height:0.8;">ಠ_ಠ</div>
+                <h1 style="color:#000;font-size:4rem;font-family:serif;margin-top:20px;">넌 도망칠 수 없다</h1>
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '나가기';
+            closeBtn.style.cssText = 'margin-top:50px;padding:15px 40px;background:#000;color:#aa0000;border:none;font-size:1.5rem;cursor:pointer;';
+            closeBtn.onclick = () => this.close();
+            ui.appendChild(closeBtn);
+
+            this.container.appendChild(ui);
+        },
+
+        _winGame() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            this.controls.unlock();
+
+            const ui = document.createElement('div');
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;';
+            
+            ui.innerHTML = `
+                <h1 style="color:#000;font-size:4rem;font-family:serif;margin-bottom:20px;">생존</h1>
+                <p style="color:#333;font-size:1.5rem;">무사히 모든 쪽지를 찾아 탈출했습니다.</p>
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '나가기';
+            closeBtn.style.cssText = 'margin-top:50px;padding:15px 40px;background:#000;color:#fff;border:none;font-size:1.5rem;cursor:pointer;';
+            closeBtn.onclick = () => this.close();
+            ui.appendChild(closeBtn);
+
+            this.container.appendChild(ui);
+        },
+
+        close() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            
+            document.removeEventListener('keydown', this._onKeyDown);
+            document.removeEventListener('keyup', this._onKeyUp);
+            window.removeEventListener('resize', this._onResize);
+            
+            if (this.renderer) {
+                this.renderer.domElement.removeEventListener('click', this._onClick);
+                this.renderer.dispose();
+            }
+            if (this.controls) this.controls.unlock();
+            
+            if (this.overlay) this.overlay.remove();
+        }
     }
 };

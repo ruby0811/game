@@ -237,7 +237,8 @@ const genresData = [
                 image: "images/공포.jpg",
                 def: "두려움과 긴장감을 제공하는 데 목적을 둔 장르로 생존 호러와 심리 호러로 나뉩니다.",
                 features: ["제한된 자원과 은신", "어두운 환경, 점프 스케어", "심리적 긴장감 유도"],
-                examples: "바이오하자드(레지던트 이블), 사일런트 힐, 아웃라스트"
+                examples: "바이오하자드(레지던트 이블), 사일런트 힐, 아웃라스트",
+                hasGame: "horror"
             },
             {
                 name: "리듬 (Rhythm) 🎵",
