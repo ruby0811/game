@@ -668,5 +668,331 @@ const MiniGames = {
             clearTimeout(this.intervalId);
             document.removeEventListener('keydown', this._keyHandler);
         }
+    },
+
+    fps: {
+        overlay: null,
+        container: null,
+        canvas: null,
+        ctx: null,
+        animationId: null,
+        isPlaying: false,
+        score: 0,
+        timeLeft: 15,
+        timerInterval: null,
+        targets: [],
+        lastSpawnTime: 0,
+        spawnRate: 800, // spawn target every 0.8s
+        
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
+
+            // Use full space for the aim trainer
+            this.container.style.width = '800px'; 
+            this.container.style.height = '600px';
+
+            this.canvas = document.createElement('canvas');
+            this.canvas.id = 'fps-canvas';
+            this.canvas.width = this.container.clientWidth;
+            this.canvas.height = this.container.clientHeight;
+            this.canvas.style.position = 'absolute';
+            this.canvas.style.top = '0';
+            this.canvas.style.left = '0';
+            this.canvas.style.width = '100%';
+            this.canvas.style.height = '100%';
+            this.canvas.style.backgroundColor = '#1a1a2e';
+            this.canvas.style.cursor = 'crosshair';
+            
+            this.ctx = this.canvas.getContext('2d');
+            this.container.appendChild(this.canvas);
+
+            // Initial UI
+            const uiDiv = document.createElement('div');
+            uiDiv.id = 'fps-ui';
+            uiDiv.style.position = 'absolute';
+            uiDiv.style.top = '0';
+            uiDiv.style.left = '0';
+            uiDiv.style.width = '100%';
+            uiDiv.style.height = '100%';
+            uiDiv.style.zIndex = '11';
+            uiDiv.style.display = 'flex';
+            uiDiv.style.flexDirection = 'column';
+            uiDiv.style.alignItems = 'center';
+            uiDiv.style.justifyContent = 'center';
+            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+
+            const title = document.createElement('h2');
+            title.innerText = '🎯 FPS 에임 훈련장';
+            title.style.color = '#fff';
+            title.style.fontSize = '2rem';
+            title.style.marginBottom = '10px';
+
+            const desc = document.createElement('p');
+            desc.innerText = '나타나는 과녁을 클릭해 맞추세요!\n제한시간: 15초';
+            desc.style.color = '#ccc';
+            desc.style.textAlign = 'center';
+            desc.style.marginBottom = '30px';
+
+            const startBtn = document.createElement('button');
+            startBtn.innerText = '훈련 시작';
+            startBtn.className = 'play-game-btn'; 
+            startBtn.style.padding = '15px 30px';
+            startBtn.style.fontSize = '1.2rem';
+            startBtn.style.cursor = 'pointer';
+            startBtn.style.marginBottom = '15px';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '닫기';
+            closeBtn.style.padding = '10px 20px';
+            closeBtn.style.backgroundColor = 'transparent';
+            closeBtn.style.color = '#fff';
+            closeBtn.style.border = '1px solid #fff';
+            closeBtn.style.borderRadius = '20px';
+            closeBtn.style.cursor = 'pointer';
+
+            uiDiv.appendChild(title);
+            uiDiv.appendChild(desc);
+            uiDiv.appendChild(startBtn);
+            uiDiv.appendChild(closeBtn);
+            this.container.appendChild(uiDiv);
+
+            // Event bindings
+            this.handleInput = this.handleInput.bind(this);
+            this.canvas.addEventListener('mousedown', this.handleInput);
+            this.canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                this.handleInput(e.touches[0]);
+            }, {passive: false});
+
+            startBtn.onclick = () => {
+                uiDiv.remove();
+                this.startGame();
+            };
+
+            closeBtn.onclick = () => {
+                this.stopGame();
+            };
+        },
+
+        startGame() {
+            this.isPlaying = true;
+            this.score = 0;
+            this.timeLeft = 15;
+            this.targets = [];
+            this.lastSpawnTime = performance.now();
+            
+            if (this.animationId) cancelAnimationFrame(this.animationId);
+            if (this.timerInterval) clearInterval(this.timerInterval);
+
+            this.timerInterval = setInterval(() => {
+                this.timeLeft--;
+                if (this.timeLeft <= 0) {
+                    this.gameOver();
+                }
+            }, 1000);
+
+            this.loop(performance.now());
+        },
+
+        stopGame() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+            this.canvas.removeEventListener('mousedown', this.handleInput);
+            if(this.overlay) {
+                this.overlay.remove();
+            }
+        },
+
+        handleInput(e) {
+            if (!this.isPlaying) return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            // Check hit from newest to oldest
+            for (let i = this.targets.length - 1; i >= 0; i--) {
+                const t = this.targets[i];
+                const dist = Math.hypot(t.x - clickX, t.y - clickY);
+                if (dist <= t.radius) {
+                    // Hit!
+                    this.score++;
+                    t.hit = true;
+                    // Visual feedback
+                    t.radius *= 1.5;
+                    t.opacity = 0; // Trigger fade out
+                    break;
+                }
+            }
+        },
+
+        loop(timestamp) {
+            if (!this.isPlaying) return;
+            this.update(timestamp);
+            this.draw();
+            this.animationId = requestAnimationFrame(this.loop.bind(this));
+        },
+
+        update(timestamp) {
+            // Spawn new targets
+            if (timestamp - this.lastSpawnTime > this.spawnRate) {
+                this.spawnTarget();
+                this.lastSpawnTime = timestamp;
+                // Make it slightly faster over time
+                this.spawnRate = Math.max(300, this.spawnRate - 20); 
+            }
+
+            // Update targets
+            for (let i = this.targets.length - 1; i >= 0; i--) {
+                const t = this.targets[i];
+                if (!t.hit) {
+                    // Shrink over time
+                    const age = timestamp - t.spawnTime;
+                    if (age > t.lifespan) {
+                        this.targets.splice(i, 1); // Remove missed target
+                    } else {
+                        // Calculate radius based on age
+                        const lifePercent = age / t.lifespan;
+                        // Starts at radius, shrinks to 0
+                        t.currentRadius = t.radius * (1 - lifePercent);
+                    }
+                } else {
+                    // Fading out hit animation
+                    t.fadeTimer -= 16;
+                    if (t.fadeTimer <= 0) {
+                        this.targets.splice(i, 1);
+                    }
+                }
+            }
+        },
+
+        spawnTarget() {
+            const radius = 30 + Math.random() * 20; // 30 to 50
+            const x = radius + Math.random() * (this.canvas.width - radius * 2);
+            const y = radius + Math.random() * (this.canvas.height - radius * 2);
+            
+            this.targets.push({
+                x, y, 
+                radius, 
+                currentRadius: radius,
+                spawnTime: performance.now(),
+                lifespan: 1500 + Math.random() * 1000, // 1.5 to 2.5 seconds
+                hit: false,
+                opacity: 1,
+                fadeTimer: 200, // ms for hit animation
+                color: `hsl(${Math.random() * 360}, 80%, 60%)`
+            });
+        },
+
+        draw() {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Draw targets
+            for (const t of this.targets) {
+                this.ctx.beginPath();
+                this.ctx.arc(t.x, t.y, t.hit ? t.radius : Math.max(0.1, t.currentRadius), 0, Math.PI * 2);
+                
+                if (t.hit) {
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${t.fadeTimer / 200})`;
+                } else {
+                    this.ctx.fillStyle = t.color;
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.shadowColor = t.color;
+                }
+                
+                this.ctx.fill();
+                this.ctx.shadowBlur = 0; // Reset
+                
+                // Bullseye rings
+                if (!t.hit && t.currentRadius > 10) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(t.x, t.y, t.currentRadius * 0.6, 0, Math.PI * 2);
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.fill();
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(t.x, t.y, t.currentRadius * 0.2, 0, Math.PI * 2);
+                    this.ctx.fillStyle = t.color;
+                    this.ctx.fill();
+                }
+            }
+
+            // UI overlay (Score & Timer)
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 24px "Pretendard", sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(`🎯 명중: ${this.score}`, 20, 40);
+            
+            this.ctx.textAlign = 'right';
+            this.ctx.fillStyle = this.timeLeft <= 3 ? '#ff4757' : '#fff';
+            this.ctx.fillText(`⏱ 시간: ${this.timeLeft}초`, this.canvas.width - 20, 40);
+            this.ctx.textAlign = 'left'; // Reset
+        },
+
+        gameOver() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+            
+            const uiDiv = document.createElement('div');
+            uiDiv.id = 'fps-over';
+            uiDiv.style.position='absolute';
+            uiDiv.style.top='0';
+            uiDiv.style.left='0';
+            uiDiv.style.width='100%';
+            uiDiv.style.height='100%';
+            uiDiv.style.background='rgba(0,0,0,0.85)';
+            uiDiv.style.display='flex';
+            uiDiv.style.flexDirection='column';
+            uiDiv.style.alignItems='center';
+            uiDiv.style.justifyContent='center';
+            uiDiv.style.zIndex='15';
+
+            const title = document.createElement('h2');
+            title.innerText = '훈련 종료!';
+            title.style.color = '#e94560';
+            title.style.fontSize = '3rem';
+            title.style.marginBottom = '20px';
+
+            const scoreText = document.createElement('p');
+            scoreText.innerText = `최종 타수: ${this.score}개`;
+            scoreText.style.color = '#fff';
+            scoreText.style.marginBottom = '30px';
+            scoreText.style.fontSize = '1.5rem';
+
+            const restartBtn = document.createElement('button');
+            restartBtn.innerText = '다시 훈련하기';
+            restartBtn.className = 'play-game-btn'; 
+            restartBtn.style.padding = '15px 30px';
+            restartBtn.style.fontSize = '1.2rem';
+            restartBtn.style.cursor = 'pointer';
+            restartBtn.style.marginBottom = '15px';
+            restartBtn.onclick = () => {
+                uiDiv.remove();
+                this.startGame();
+            };
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '닫기';
+            closeBtn.style.padding = '10px 20px';
+            closeBtn.style.backgroundColor = 'transparent';
+            closeBtn.style.color = '#fff';
+            closeBtn.style.border = '1px solid #fff';
+            closeBtn.style.borderRadius = '20px';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.onclick = () => {
+                uiDiv.remove();
+                this.stopGame();
+            };
+
+            uiDiv.appendChild(title);
+            uiDiv.appendChild(scoreText);
+            uiDiv.appendChild(restartBtn);
+            uiDiv.appendChild(closeBtn);
+            this.container.appendChild(uiDiv);
+        }
     }
 };
