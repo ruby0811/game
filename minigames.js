@@ -1122,5 +1122,517 @@ const MiniGames = {
             if(this.controls) this.controls.unlock();
             if(this.overlay) this.overlay.remove();
         }
+    },
+
+    tps: {
+        overlay: null,
+        container: null,
+        animationId: null,
+        isPlaying: false,
+        score: 0,
+        timeLeft: 30,
+        timerInterval: null,
+
+        // Three.js
+        scene: null,
+        camera: null,
+        renderer: null,
+        raycaster: null,
+        player: null,       // Group (block character)
+        targets: [],
+
+        // Camera orbit
+        cameraAngleH: 0,      // horizontal angle around player
+        cameraAngleV: 0.3,    // vertical angle
+        cameraDist: 40,
+        isPointerDown: false,
+        lastPointerX: 0,
+        lastPointerY: 0,
+
+        // Movement
+        moveForward: false,
+        moveBackward: false,
+        moveLeft: false,
+        moveRight: false,
+        isShooting: false,
+        shootCooldown: 0,
+
+        // Bullet trail
+        bullets: [],
+
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
+
+            this.container.style.width = '100vw';
+            this.container.style.height = '100vh';
+            this.container.style.maxWidth = '100vw';
+            this.container.style.maxHeight = '100vh';
+            this.container.style.borderRadius = '0';
+
+            if (!window.THREE) {
+                alert("Three.js 로딩 오류. 새로고침 후 다시 시도해주세요.");
+                this.close(); return;
+            }
+
+            // ── Scene ──────────────────────────────────────────────
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x87ceeb);
+            this.scene.fog = new THREE.FogExp2(0x87ceeb, 0.005);
+
+            // Lights
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            this.scene.add(ambient);
+            const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+            dir.position.set(50, 100, 50);
+            this.scene.add(dir);
+
+            // Floor (grass)
+            const floorGeo = new THREE.PlaneGeometry(400, 400, 20, 20);
+            floorGeo.rotateX(-Math.PI / 2);
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x4a7c4e });
+            this.scene.add(new THREE.Mesh(floorGeo, floorMat));
+
+            // Floor grid lines
+            const gridHelper = new THREE.GridHelper(400, 40, 0x2a5c2e, 0x2a5c2e);
+            this.scene.add(gridHelper);
+
+            // Some cover boxes for environment feel
+            const wallMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const wallPositions = [
+                [30, 0, -20], [-25, 0, 30], [50, 0, 50], [-50, 0, -40],
+                [0, 0, 60], [-60, 0, 10], [70, 0, -50], [-10, 0, -70]
+            ];
+            wallPositions.forEach(([x, y, z]) => {
+                const w = 8 + Math.random() * 8;
+                const h = 8 + Math.random() * 10;
+                const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), wallMat);
+                box.position.set(x, h / 2, z);
+                this.scene.add(box);
+            });
+
+            // ── Player (block character) ───────────────────────────
+            this.player = this._buildBlockMan();
+            this.player.position.set(0, 0, 0);
+            this.scene.add(this.player);
+
+            // ── Camera ────────────────────────────────────────────
+            this.camera = new THREE.PerspectiveCamera(
+                70, this.container.clientWidth / this.container.clientHeight, 0.1, 1000
+            );
+
+            // ── Renderer ──────────────────────────────────────────
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+            this.renderer.shadowMap.enabled = true;
+            this.container.appendChild(this.renderer.domElement);
+
+            this.raycaster = new THREE.Raycaster();
+
+            // ── Spawn enemies ──────────────────────────────────────
+            for (let i = 0; i < 10; i++) this._spawnEnemy();
+
+            // ── HUD ───────────────────────────────────────────────
+            this._buildHUD();
+
+            // ── Start Screen ──────────────────────────────────────
+            const uiDiv = this._buildStartUI();
+            this.container.appendChild(uiDiv);
+
+            // ── Events ────────────────────────────────────────────
+            this._onKeyDown = this._onKeyDown.bind(this);
+            this._onKeyUp   = this._onKeyUp.bind(this);
+            this._onPD      = this._onPD.bind(this);
+            this._onPM      = this._onPM.bind(this);
+            this._onPU      = this._onPU.bind(this);
+            this._onResize  = this._onResize.bind(this);
+            this._onClick   = this._onClick.bind(this);
+
+            document.addEventListener('keydown', this._onKeyDown);
+            document.addEventListener('keyup',   this._onKeyUp);
+            this.renderer.domElement.addEventListener('mousedown', this._onPD);
+            this.renderer.domElement.addEventListener('mousemove', this._onPM);
+            window.addEventListener('mouseup',  this._onPU);
+            window.addEventListener('resize',   this._onResize);
+            this.renderer.domElement.addEventListener('click', this._onClick);
+
+            this._animate = this._animate.bind(this);
+        },
+
+        // ── Block Man Builder ─────────────────────────────────────
+        _buildBlockMan() {
+            const group = new THREE.Group();
+
+            const skin  = new THREE.MeshLambertMaterial({ color: 0xffe0bd });
+            const shirt = new THREE.MeshLambertMaterial({ color: 0x1565c0 });
+            const pants = new THREE.MeshLambertMaterial({ color: 0x37474f });
+            const shoe  = new THREE.MeshLambertMaterial({ color: 0x212121 });
+            const hair  = new THREE.MeshLambertMaterial({ color: 0x3e2723 });
+            const gunM  = new THREE.MeshLambertMaterial({ color: 0x333333 });
+
+            const add = (geo, mat, x, y, z, parent) => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(x, y, z);
+                (parent || group).add(m);
+                return m;
+            };
+
+            // Head
+            add(new THREE.BoxGeometry(4, 4, 4), skin,  0, 15.5, 0);
+            add(new THREE.BoxGeometry(4.1, 1.2, 4.2), hair, 0, 17.4, 0); // hair top
+            add(new THREE.BoxGeometry(4.2, 1, 0.3), hair, 0, 15.8, -2.1); // hair back
+
+            // Body
+            add(new THREE.BoxGeometry(5, 6, 3), shirt, 0, 10.5, 0);
+
+            // Arms
+            const leftArm  = add(new THREE.BoxGeometry(1.8, 5, 1.8), shirt, -3.4, 10.5, 0);
+            const rightArm = add(new THREE.BoxGeometry(1.8, 5, 1.8), shirt,  3.4, 10.5, 0);
+
+            // Gun in right hand
+            add(new THREE.BoxGeometry(0.8, 0.8, 3.5), gunM, 0, -2.5, 1.8, rightArm);
+            add(new THREE.BoxGeometry(0.6, 1.8, 0.6), gunM, 0, -1.8, 0.5, rightArm); // grip
+
+            // Legs
+            const leftLeg  = add(new THREE.BoxGeometry(2, 5.5, 2), pants, -1.2, 4.5, 0);
+            const rightLeg = add(new THREE.BoxGeometry(2, 5.5, 2), pants,  1.2, 4.5, 0);
+
+            // Shoes
+            add(new THREE.BoxGeometry(2.2, 1, 3),   shoe, -1.2, 1.2, 0.4);
+            add(new THREE.BoxGeometry(2.2, 1, 3),   shoe,  1.2, 1.2, 0.4);
+
+            // Store limb refs for walk animation
+            group.userData.leftArm  = leftArm;
+            group.userData.rightArm = rightArm;
+            group.userData.leftLeg  = leftLeg;
+            group.userData.rightLeg = rightLeg;
+            group.userData.walkTime = 0;
+
+            return group;
+        },
+
+        // ── Enemy Builder ─────────────────────────────────────────
+        _spawnEnemy() {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshLambertMaterial({ color: 0xc62828 });
+            const dark = new THREE.MeshLambertMaterial({ color: 0x7f0000 });
+
+            const add = (geo, m, x, y, z) => {
+                const mesh = new THREE.Mesh(geo, m);
+                mesh.position.set(x, y, z);
+                group.add(mesh);
+            };
+
+            add(new THREE.BoxGeometry(4, 4, 4), mat, 0, 15.5, 0);   // head
+            add(new THREE.BoxGeometry(5, 6, 3), mat, 0, 10.5, 0);   // body
+            add(new THREE.BoxGeometry(1.8, 5, 1.8), dark, -3.4, 10.5, 0); // left arm
+            add(new THREE.BoxGeometry(1.8, 5, 1.8), dark,  3.4, 10.5, 0); // right arm
+            add(new THREE.BoxGeometry(2, 5.5, 2), dark, -1.2, 4.5, 0);    // left leg
+            add(new THREE.BoxGeometry(2, 5.5, 2), dark,  1.2, 4.5, 0);    // right leg
+
+            // Place enemy randomly but away from player
+            let ex, ez;
+            do {
+                ex = (Math.random() - 0.5) * 300;
+                ez = (Math.random() - 0.5) * 300;
+            } while (Math.hypot(ex, ez) < 40);
+
+            group.position.set(ex, 0, ez);
+            group.userData.isEnemy = true;
+            group.userData.hp = 1;
+            group.userData.walkTime = Math.random() * Math.PI * 2;
+
+            this.scene.add(group);
+            this.targets.push(group);
+        },
+
+        // ── HUD ───────────────────────────────────────────────────
+        _buildHUD() {
+            // Crosshair
+            const ch = document.createElement('div');
+            ch.id = 'tps-crosshair';
+            ch.innerHTML = '<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:lime;font-size:28px;font-weight:bold;pointer-events:none;z-index:10;">⊕</span>';
+            ch.style.position = 'absolute';
+            ch.style.top = '0'; ch.style.left = '0';
+            ch.style.width = '100%'; ch.style.height = '100%';
+            ch.style.pointerEvents = 'none';
+            ch.style.zIndex = '10';
+            this.container.appendChild(ch);
+
+            // Stats bar
+            const hud = document.createElement('div');
+            hud.style.cssText = 'position:absolute;top:20px;left:20px;right:20px;display:flex;justify-content:space-between;color:#fff;font-size:22px;font-weight:bold;pointer-events:none;z-index:10;text-shadow:0 2px 4px #000;';
+            hud.innerHTML = '<span id="tps-score">🎯 처치: 0</span><span id="tps-time">⏱ 시간: 30초</span>';
+            this.container.appendChild(hud);
+
+            // Controls guide
+            const guide = document.createElement('div');
+            guide.style.cssText = 'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;text-align:center;pointer-events:none;z-index:10;text-shadow:0 1px 3px #000;background:rgba(0,0,0,0.4);padding:8px 18px;border-radius:12px;';
+            guide.innerHTML = '🕹️ <b>WASD</b> 이동 &nbsp;|&nbsp; 🖱️ 마우스 드래그로 카메라 회전 &nbsp;|&nbsp; 🖱️ 클릭으로 사격';
+            this.container.appendChild(guide);
+        },
+
+        _buildStartUI() {
+            const ui = document.createElement('div');
+            ui.id = 'tps-start-ui';
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);';
+
+            ui.innerHTML = `
+                <h2 style="color:#fff;font-size:3rem;margin-bottom:15px;">🎮 3인칭 슈팅 (TPS)</h2>
+                <p style="color:#ccc;text-align:center;line-height:1.7;margin-bottom:30px;">
+                    WASD: 이동 &nbsp;|&nbsp; 마우스 드래그: 카메라 회전<br>
+                    클릭: 사격 (화면 중앙 기준 레이캐스트)<br>
+                    30초 안에 최대한 많은 적을 처치하세요!
+                </p>
+            `;
+
+            const startBtn = document.createElement('button');
+            startBtn.innerText = '게임 시작';
+            startBtn.className = 'play-game-btn';
+            startBtn.style.cssText = 'padding:15px 35px;font-size:1.2rem;cursor:pointer;margin-bottom:12px;';
+            startBtn.onclick = () => { ui.remove(); this._startGame(); };
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '닫기';
+            closeBtn.style.cssText = 'padding:10px 22px;background:transparent;color:#fff;border:1px solid #fff;border-radius:20px;cursor:pointer;';
+            closeBtn.onclick = () => this.close();
+
+            ui.appendChild(startBtn);
+            ui.appendChild(closeBtn);
+            return ui;
+        },
+
+        // ── Game Flow ─────────────────────────────────────────────
+        _startGame() {
+            this.isPlaying = true;
+            this.score = 0;
+            this.timeLeft = 30;
+            this._updateHUD();
+
+            if (this.timerInterval) clearInterval(this.timerInterval);
+            this.timerInterval = setInterval(() => {
+                this.timeLeft--;
+                this._updateHUD();
+                if (this.timeLeft <= 0) this._gameOver();
+            }, 1000);
+
+            if (this.animationId) cancelAnimationFrame(this.animationId);
+            this._animate();
+        },
+
+        _updateHUD() {
+            const s = document.getElementById('tps-score');
+            const t = document.getElementById('tps-time');
+            if (s) s.innerText = `🎯 처치: ${this.score}`;
+            if (t) {
+                t.innerText = `⏱ 시간: ${this.timeLeft}초`;
+                t.style.color = this.timeLeft <= 5 ? '#ff4757' : '#fff';
+            }
+        },
+
+        // ── Input ─────────────────────────────────────────────────
+        _onKeyDown(e) {
+            switch(e.code) {
+                case 'KeyW': case 'ArrowUp':    this.moveForward  = true; break;
+                case 'KeyS': case 'ArrowDown':  this.moveBackward = true; break;
+                case 'KeyA': case 'ArrowLeft':  this.moveLeft     = true; break;
+                case 'KeyD': case 'ArrowRight': this.moveRight    = true; break;
+            }
+        },
+        _onKeyUp(e) {
+            switch(e.code) {
+                case 'KeyW': case 'ArrowUp':    this.moveForward  = false; break;
+                case 'KeyS': case 'ArrowDown':  this.moveBackward = false; break;
+                case 'KeyA': case 'ArrowLeft':  this.moveLeft     = false; break;
+                case 'KeyD': case 'ArrowRight': this.moveRight    = false; break;
+            }
+        },
+        _onPD(e) { this.isPointerDown = true; this.lastPointerX = e.clientX; this.lastPointerY = e.clientY; },
+        _onPU()  { this.isPointerDown = false; },
+        _onPM(e) {
+            if (!this.isPointerDown) return;
+            const dx = e.clientX - this.lastPointerX;
+            const dy = e.clientY - this.lastPointerY;
+            this.cameraAngleH -= dx * 0.005;
+            this.cameraAngleV  = Math.max(0.1, Math.min(1.0, this.cameraAngleV + dy * 0.004));
+            this.lastPointerX = e.clientX;
+            this.lastPointerY = e.clientY;
+        },
+        _onClick() {
+            if (!this.isPlaying) return;
+            this._shoot();
+        },
+        _onResize() {
+            if (!this.camera || !this.renderer) return;
+            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        },
+
+        // ── Shooting ──────────────────────────────────────────────
+        _shoot() {
+            // Shoot from center screen (NDC 0,0) using camera direction
+            this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+
+            // Collect all meshes inside target groups
+            const meshes = [];
+            this.targets.forEach(g => g.traverse(c => { if (c.isMesh) meshes.push(c); }));
+
+            const hits = this.raycaster.intersectObjects(meshes, false);
+            if (hits.length > 0) {
+                // Find parent group
+                let obj = hits[0].object;
+                while (obj.parent && !obj.parent.userData.isEnemy) obj = obj.parent;
+                const group = obj.parent;
+                if (group && group.userData.isEnemy) {
+                    // Flash red then remove
+                    group.traverse(c => { if (c.isMesh) c.material = new THREE.MeshLambertMaterial({ color: 0xff6600 }); });
+                    setTimeout(() => {
+                        this.scene.remove(group);
+                        this.targets = this.targets.filter(t => t !== group);
+                        this._spawnEnemy(); // replenish
+                    }, 150);
+                    this.score++;
+                    this._updateHUD();
+                }
+            }
+
+            // Muzzle flash effect (brief bright pulse)
+            const flash = document.createElement('div');
+            flash.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,200,50,0.15);pointer-events:none;z-index:9;';
+            this.container.appendChild(flash);
+            setTimeout(() => flash.remove(), 60);
+        },
+
+        // ── Animation Loop ────────────────────────────────────────
+        _animate() {
+            if (!this.isPlaying) return;
+            this.animationId = requestAnimationFrame(this._animate);
+
+            const speed = 0.25;
+
+            // Movement direction based on camera horizontal angle
+            if (this.moveForward || this.moveBackward || this.moveLeft || this.moveRight) {
+                const fwd = new THREE.Vector3(
+                    -Math.sin(this.cameraAngleH),
+                    0,
+                    -Math.cos(this.cameraAngleH)
+                );
+                const right = new THREE.Vector3(
+                    Math.cos(this.cameraAngleH),
+                    0,
+                    -Math.sin(this.cameraAngleH)
+                );
+
+                let moveDir = new THREE.Vector3();
+                if (this.moveForward)  moveDir.add(fwd);
+                if (this.moveBackward) moveDir.sub(fwd);
+                if (this.moveLeft)     moveDir.sub(right);
+                if (this.moveRight)    moveDir.add(right);
+
+                moveDir.normalize().multiplyScalar(speed);
+                this.player.position.add(moveDir);
+
+                // Clamp to arena
+                this.player.position.x = Math.max(-190, Math.min(190, this.player.position.x));
+                this.player.position.z = Math.max(-190, Math.min(190, this.player.position.z));
+
+                // Rotate player to face movement direction
+                if (moveDir.length() > 0.001) {
+                    const angle = Math.atan2(moveDir.x, moveDir.z);
+                    this.player.rotation.y = angle;
+                }
+
+                // Walk animation
+                const ud = this.player.userData;
+                ud.walkTime += 0.18;
+                const sw = Math.sin(ud.walkTime) * 0.5;
+                ud.leftArm.rotation.x  =  sw;
+                ud.rightArm.rotation.x = -sw;
+                ud.leftLeg.rotation.x  = -sw;
+                ud.rightLeg.rotation.x =  sw;
+            } else {
+                // Idle – reset limbs
+                const ud = this.player.userData;
+                ud.leftArm.rotation.x  = 0;
+                ud.rightArm.rotation.x = 0;
+                ud.leftLeg.rotation.x  = 0;
+                ud.rightLeg.rotation.x = 0;
+            }
+
+            // Enemy AI: slowly walk toward player & bob
+            this.targets.forEach(g => {
+                const toPlayer = new THREE.Vector3().subVectors(this.player.position, g.position);
+                toPlayer.y = 0;
+                const dist = toPlayer.length();
+                if (dist > 5) {
+                    toPlayer.normalize().multiplyScalar(0.06);
+                    g.position.add(toPlayer);
+                    g.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+                }
+                // Bob animation
+                g.userData.walkTime += 0.08;
+                g.position.y = Math.sin(g.userData.walkTime) * 0.5;
+            });
+
+            // Third-person camera: orbit around player
+            const px = this.player.position.x;
+            const py = this.player.position.y + 12; // target height
+            const pz = this.player.position.z;
+
+            const camX = px + this.cameraDist * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+            const camY = py + this.cameraDist * Math.sin(this.cameraAngleV);
+            const camZ = pz + this.cameraDist * Math.cos(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+
+            this.camera.position.set(camX, camY, camZ);
+            this.camera.lookAt(px, py, pz);
+
+            this.renderer.render(this.scene, this.camera);
+        },
+
+        // ── Game Over ─────────────────────────────────────────────
+        _gameOver() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+
+            const ui = document.createElement('div');
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+
+            ui.innerHTML = `
+                <h2 style="color:#e94560;font-size:3.5rem;margin-bottom:15px;">미션 종료!</h2>
+                <p style="color:#fff;font-size:1.8rem;margin-bottom:30px;">최종 처치: ${this.score}명의 적</p>
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '나가기';
+            closeBtn.style.cssText = 'padding:12px 26px;background:transparent;color:#fff;border:1px solid #fff;border-radius:22px;cursor:pointer;font-size:1rem;';
+            closeBtn.onclick = () => this.close();
+            ui.appendChild(closeBtn);
+
+            this.container.appendChild(ui);
+        },
+
+        // ── Cleanup ───────────────────────────────────────────────
+        close() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+
+            document.removeEventListener('keydown', this._onKeyDown);
+            document.removeEventListener('keyup',   this._onKeyUp);
+            window.removeEventListener('mouseup',   this._onPU);
+            window.removeEventListener('resize',    this._onResize);
+
+            if (this.renderer) {
+                this.renderer.domElement.removeEventListener('mousedown', this._onPD);
+                this.renderer.domElement.removeEventListener('mousemove', this._onPM);
+                this.renderer.domElement.removeEventListener('click',     this._onClick);
+                this.renderer.dispose();
+            }
+            if (this.overlay) this.overlay.remove();
+        }
     }
 };
