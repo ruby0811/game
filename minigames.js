@@ -2041,7 +2041,9 @@ const MiniGames = {
             closeBtn.onclick = () => { ui.remove(); this.close(); };
             
             ui.appendChild(closeBtn);
-            document.querySelector('#fight-p1-hp').parentElement.parentElement.parentElement.appendChild(ui);
+            
+            // Append to gameContainer (canvas.parentElement) instead of HUD to allow pointer events
+            this.canvas.parentElement.appendChild(ui);
         },
 
         close() {
