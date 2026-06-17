@@ -3358,6 +3358,15 @@ const MiniGames = {
             this.canvas.width=this.W;this.canvas.height=this.H;
             this.canvas.style.cssText='display:block;width:100%;height:100%;';
             this.container.appendChild(this.canvas);
+            
+            const xBtn = document.createElement('button');
+            xBtn.innerText = '✕';
+            xBtn.style.cssText = 'position:absolute;top:10px;right:10px;width:36px;height:36px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:18px;cursor:pointer;font-size:20px;z-index:100;display:flex;align-items:center;justify-content:center;font-weight:bold;';
+            xBtn.onmouseover = () => xBtn.style.background = 'rgba(255,0,0,0.8)';
+            xBtn.onmouseout = () => xBtn.style.background = 'rgba(0,0,0,0.6)';
+            xBtn.onclick = () => this.close();
+            this.container.appendChild(xBtn);
+
             this.ctx=this.canvas.getContext('2d');
             this.day=1;this.season='Spring';this.gold=100;
             this.inv={corn:0,strawberry:0,pumpkin:0};
@@ -3375,7 +3384,10 @@ const MiniGames = {
                 if(e.code==='Digit1')this.selectedSeed='corn';
                 if(e.code==='Digit2')this.selectedSeed='strawberry';
                 if(e.code==='Digit3')this.selectedSeed='pumpkin';
-                if(e.code==='Escape'){this.uiMode=null;const s=this.container.querySelector('#farm-shop-ui');if(s)s.remove();}
+                if(e.code==='Escape'){
+                    if(this.uiMode){ this.uiMode=null;const s=this.container.querySelector('#farm-shop-ui');if(s)s.remove(); }
+                    else { this.close(); }
+                }
             };
             this._onKeyUp=(e)=>{this.keys[e.code]=false;};
             window.addEventListener('keydown',this._onKeyDown);
