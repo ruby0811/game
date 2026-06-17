@@ -196,7 +196,7 @@ const MiniGames = {
                     y: floor - obsHeight,
                     width: 30,
                     height: obsHeight,
-                    speed: 6 + (this.score / 500)
+                    speed: 12 + (this.score / 300)
                 });
             }
 
@@ -328,7 +328,7 @@ const MiniGames = {
         current: null,
         next: null,
         intervalId: null,
-        speed: 800,
+        speed: 400,
         isPlaying: false,
 
         init() {
@@ -360,7 +360,7 @@ const MiniGames = {
             this._resetBoard();
             this._spawnPiece();
             this.isPlaying = true;
-            this.speed = 800;
+            this.speed = 400;
             
             const uiDiv = document.createElement('div');
             uiDiv.id = 'tetris-start-ui';
@@ -654,7 +654,7 @@ const MiniGames = {
             if(over) over.remove();
             this._resetBoard();
             this._spawnPiece();
-            this.speed=800;
+            this.speed=400;
             this.isPlaying=true;
             document.addEventListener('keydown', this._keyHandler);
             this._loop();
@@ -1028,7 +1028,7 @@ const MiniGames = {
                 this.direction.x = Number( this.moveRight ) - Number( this.moveLeft );
                 this.direction.normalize(); // consistent movements
 
-                const moveSpeed = 400.0;
+                const moveSpeed = 800.0;
                 if ( this.moveForward || this.moveBackward ) this.velocity.z -= this.direction.z * moveSpeed * delta;
                 if ( this.moveLeft || this.moveRight ) this.velocity.x -= this.direction.x * moveSpeed * delta;
 
@@ -1508,7 +1508,7 @@ const MiniGames = {
             if (!this.isPlaying) return;
             this.animationId = requestAnimationFrame(this._animate);
 
-            const speed = 0.70; // faster movement
+            const speed = 1.30; // faster movement
 
             // Movement direction based on camera horizontal angle
             if (this.moveForward || this.moveBackward || this.moveLeft || this.moveRight) {
@@ -1742,7 +1742,7 @@ const MiniGames = {
                     this.isPlayer = isPlayer;
                     
                     this.hp = 100;
-                    this.speed = 5;
+                    this.speed = 9;
                     this.velY = 0;
                     
                     this.isJumping = false;
@@ -1901,7 +1901,7 @@ const MiniGames = {
                 if (this.keys['KeyA']) this.player.x -= this.player.speed;
                 if (this.keys['KeyD']) this.player.x += this.player.speed;
                 if (this.keys['KeyW'] && !this.player.isJumping) {
-                    this.player.velY = -15;
+                    this.player.velY = -20;
                     this.player.isJumping = true;
                 }
             }
