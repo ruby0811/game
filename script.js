@@ -226,7 +226,8 @@ const genresData = [
                 image: "images/퍼즐.jpg",
                 def: "논리적 사고와 문제 해결 능력을 요구하며, 캐주얼부터 하드코어까지 넓은 유저층을 가집니다.",
                 features: ["문제 해결 중심", "점진적인 난이도 상승", "간단한 규칙 속 깊은 복잡성"],
-                examples: "테트리스, 캔디크러쉬, 포탈, 더 위트니스"
+                examples: "테트리스, 캔디크러쉬, 포탈, 더 위트니스",
+                hasGame: "tetris"
             },
             {
                 name: "공포 (Horror) 👻",
