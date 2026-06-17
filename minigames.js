@@ -1,48 +1,77 @@
 // 미니게임 로직 모음
 
 const MiniGames = {
+    // 공통 유틸: 전체화면 오버레이 생성
+    _createOverlay() {
+        if (document.getElementById('minigame-fullscreen-overlay')) {
+            document.getElementById('minigame-fullscreen-overlay').remove();
+        }
+        
+        const overlay = document.createElement('div');
+        overlay.id = 'minigame-fullscreen-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        overlay.style.backdropFilter = 'blur(10px)'; // 배경 블러 처리
+        overlay.style.zIndex = '9999';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+
+        const gameContainer = document.createElement('div');
+        gameContainer.style.position = 'relative';
+        gameContainer.style.width = '800px';
+        gameContainer.style.maxWidth = '90vw';
+        gameContainer.style.height = '600px';
+        gameContainer.style.maxHeight = '90vh';
+        gameContainer.style.backgroundColor = '#1a1a2e';
+        gameContainer.style.borderRadius = '20px';
+        gameContainer.style.boxShadow = '0 10px 30px rgba(0,0,0,0.5)';
+        gameContainer.style.overflow = 'hidden';
+
+        overlay.appendChild(gameContainer);
+        document.body.appendChild(overlay);
+
+        return { overlay, gameContainer };
+    },
+
     platformer: {
+        overlay: null,
         container: null,
         canvas: null,
         ctx: null,
         animationId: null,
         isPlaying: false,
         
-        player: { x: 50, y: 150, width: 30, height: 30, dy: 0, gravity: 0.6, jumpPower: -10, isGrounded: true },
+        player: { x: 50, y: 150, width: 40, height: 40, dy: 0, gravity: 0.6, jumpPower: -12, isGrounded: true },
         obstacles: [],
         frames: 0,
         score: 0,
 
-        init(parentElement) {
-            this.container = parentElement;
-            this.container.style.position = 'relative'; // 부모 요소 기준 위치
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
             
-            // 기존 캔버스가 있다면 제거
-            if (document.getElementById('minigame-canvas')) {
-                document.getElementById('minigame-canvas').remove();
-            }
-            if (document.getElementById('minigame-ui')) {
-                document.getElementById('minigame-ui').remove();
-            }
-
             // 캔버스 생성
             this.canvas = document.createElement('canvas');
             this.canvas.id = 'minigame-canvas';
-            this.canvas.width = this.container.clientWidth || 400;
-            this.canvas.height = this.container.clientHeight || 250;
+            this.canvas.width = this.container.clientWidth;
+            this.canvas.height = this.container.clientHeight;
             this.canvas.style.position = 'absolute';
             this.canvas.style.top = '0';
             this.canvas.style.left = '0';
             this.canvas.style.width = '100%';
             this.canvas.style.height = '100%';
-            this.canvas.style.backgroundColor = '#1a1a2e'; // 다크 테마 배경
-            this.canvas.style.borderRadius = '15px';
-            this.canvas.style.zIndex = '10';
+            this.canvas.style.backgroundColor = '#1a1a2e';
             
             this.ctx = this.canvas.getContext('2d');
             this.container.appendChild(this.canvas);
 
-            // UI 컨테이너 (점수, 시작/재시작 버튼 등)
+            // 초기 UI 컨테이너
             const uiDiv = document.createElement('div');
             uiDiv.id = 'minigame-ui';
             uiDiv.style.position = 'absolute';
@@ -55,37 +84,38 @@ const MiniGames = {
             uiDiv.style.flexDirection = 'column';
             uiDiv.style.alignItems = 'center';
             uiDiv.style.justifyContent = 'center';
-            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-            uiDiv.style.borderRadius = '15px';
+            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
 
-            const title = document.createElement('h3');
-            title.innerText = '플랫포머 점프 게임';
+            const title = document.createElement('h2');
+            title.innerText = '🏃‍♂️ 플랫포머 점프 게임';
             title.style.color = '#fff';
-            title.style.marginBottom = '20px';
+            title.style.fontSize = '2rem';
+            title.style.marginBottom = '30px';
 
             const startBtn = document.createElement('button');
             startBtn.innerText = '게임 시작 (Space바)';
-            startBtn.className = 'play-game-btn'; // 기존 스타일 재활용
-            startBtn.style.padding = '10px 20px';
-            startBtn.style.fontSize = '16px';
+            startBtn.className = 'play-game-btn'; 
+            startBtn.style.padding = '15px 30px';
+            startBtn.style.fontSize = '1.2rem';
             startBtn.style.cursor = 'pointer';
+            startBtn.style.marginBottom = '15px';
             
             const closeBtn = document.createElement('button');
             closeBtn.innerText = '닫기';
-            closeBtn.style.marginTop = '10px';
-            closeBtn.style.padding = '5px 15px';
+            closeBtn.style.padding = '10px 20px';
             closeBtn.style.backgroundColor = 'transparent';
             closeBtn.style.color = '#fff';
             closeBtn.style.border = '1px solid #fff';
             closeBtn.style.borderRadius = '20px';
             closeBtn.style.cursor = 'pointer';
+            closeBtn.style.fontSize = '1rem';
 
             uiDiv.appendChild(title);
             uiDiv.appendChild(startBtn);
             uiDiv.appendChild(closeBtn);
             this.container.appendChild(uiDiv);
 
-            // 이벤트 리스너 바인딩 (bind를 사용하여 this 컨텍스트 유지)
+            // 이벤트 리스너 바인딩
             this.handleInput = this.handleInput.bind(this);
             document.addEventListener('keydown', this.handleInput);
             this.canvas.addEventListener('mousedown', this.handleInput);
@@ -106,7 +136,7 @@ const MiniGames = {
             this.frames = 0;
             this.score = 0;
             this.obstacles = [];
-            this.player.y = this.canvas.height - this.player.height - 20; // 바닥 기준
+            this.player.y = this.canvas.height - this.player.height - 40; // 바닥 기준
             this.player.dy = 0;
             this.player.isGrounded = true;
             
@@ -118,20 +148,14 @@ const MiniGames = {
             this.isPlaying = false;
             cancelAnimationFrame(this.animationId);
             document.removeEventListener('keydown', this.handleInput);
-            if(this.canvas) {
-                this.canvas.removeEventListener('mousedown', this.handleInput);
-                this.canvas.removeEventListener('touchstart', this.handleInput);
-                this.canvas.remove();
-            }
-            if(document.getElementById('minigame-ui')) {
-                document.getElementById('minigame-ui').remove();
+            if(this.overlay) {
+                this.overlay.remove();
             }
         },
 
         handleInput(e) {
             if (!this.isPlaying) return;
             if (e.type === 'keydown' && e.code !== 'Space' && e.code !== 'ArrowUp') return;
-            
             if (e.type === 'keydown') e.preventDefault(); // 스페이스바 스크롤 방지
 
             if (this.player.isGrounded) {
@@ -142,7 +166,6 @@ const MiniGames = {
 
         loop() {
             if (!this.isPlaying) return;
-
             this.update();
             this.draw();
             this.animationId = requestAnimationFrame(this.loop.bind(this));
@@ -150,13 +173,12 @@ const MiniGames = {
 
         update() {
             this.frames++;
-            this.score += 1; // 점수 증가
+            this.score += 1;
 
-            // 플레이어 물리
             this.player.dy += this.player.gravity;
             this.player.y += this.player.dy;
 
-            const floor = this.canvas.height - 20;
+            const floor = this.canvas.height - 40;
 
             if (this.player.y + this.player.height >= floor) {
                 this.player.y = floor - this.player.height;
@@ -164,27 +186,24 @@ const MiniGames = {
                 this.player.isGrounded = true;
             }
 
-            // 장애물 생성 (점점 빠르게)
             let spawnRate = 120 - Math.floor(this.score / 100);
             if (spawnRate < 40) spawnRate = 40;
 
             if (this.frames % spawnRate === 0) {
-                let obsHeight = 20 + Math.random() * 30;
+                let obsHeight = 30 + Math.random() * 40;
                 this.obstacles.push({
                     x: this.canvas.width,
                     y: floor - obsHeight,
-                    width: 20,
+                    width: 30,
                     height: obsHeight,
-                    speed: 5 + (this.score / 500)
+                    speed: 6 + (this.score / 500)
                 });
             }
 
-            // 장애물 이동 및 충돌 체크
             for (let i = 0; i < this.obstacles.length; i++) {
                 let obs = this.obstacles[i];
                 obs.x -= obs.speed;
 
-                // 충돌 판정 (AABB)
                 if (
                     this.player.x < obs.x + obs.width &&
                     this.player.x + this.player.width > obs.x &&
@@ -196,42 +215,35 @@ const MiniGames = {
                 }
             }
 
-            // 화면 밖 장애물 제거
             this.obstacles = this.obstacles.filter(obs => obs.x + obs.width > 0);
         },
 
         draw() {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-            // 바닥 그리기
-            const floor = this.canvas.height - 20;
+            const floor = this.canvas.height - 40;
             this.ctx.fillStyle = '#4a4e69';
-            this.ctx.fillRect(0, floor, this.canvas.width, 20);
+            this.ctx.fillRect(0, floor, this.canvas.width, 40);
 
-            // 플레이어 그리기
-            this.ctx.fillStyle = '#e94560'; // 주인공 색상 (레드계열)
+            this.ctx.fillStyle = '#e94560'; 
             this.ctx.fillRect(this.player.x, this.player.y, this.player.width, this.player.height);
-            // 눈 그리기 (포인트)
             this.ctx.fillStyle = 'white';
-            this.ctx.fillRect(this.player.x + 20, this.player.y + 5, 5, 5);
+            this.ctx.fillRect(this.player.x + 25, this.player.y + 8, 8, 8);
 
-            // 장애물 그리기
-            this.ctx.fillStyle = '#f9a826'; // 장애물 색상 (오렌지/옐로우)
+            this.ctx.fillStyle = '#f9a826';
             for (let i = 0; i < this.obstacles.length; i++) {
                 let obs = this.obstacles[i];
                 this.ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
             }
 
-            // 점수 그리기
             this.ctx.fillStyle = '#fff';
-            this.ctx.font = '20px "Pretendard", sans-serif';
-            this.ctx.fillText(`Score: ${Math.floor(this.score / 10)}`, 20, 30);
+            this.ctx.font = '24px "Pretendard", sans-serif';
+            this.ctx.fillText(`Score: ${Math.floor(this.score / 10)}`, 30, 40);
         },
 
         gameOver() {
             this.isPlaying = false;
             
-            // 오버레이 생성
             const uiDiv = document.createElement('div');
             uiDiv.id = 'minigame-ui';
             uiDiv.style.position = 'absolute';
@@ -244,36 +256,37 @@ const MiniGames = {
             uiDiv.style.flexDirection = 'column';
             uiDiv.style.alignItems = 'center';
             uiDiv.style.justifyContent = 'center';
-            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-            uiDiv.style.borderRadius = '15px';
+            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
 
             const title = document.createElement('h2');
             title.innerText = 'Game Over!';
             title.style.color = '#e94560';
-            title.style.marginBottom = '10px';
+            title.style.fontSize = '3rem';
+            title.style.marginBottom = '20px';
 
             const scoreText = document.createElement('p');
             scoreText.innerText = `최종 점수: ${Math.floor(this.score / 10)}`;
             scoreText.style.color = '#fff';
-            scoreText.style.marginBottom = '20px';
-            scoreText.style.fontSize = '18px';
+            scoreText.style.marginBottom = '30px';
+            scoreText.style.fontSize = '1.5rem';
 
             const restartBtn = document.createElement('button');
             restartBtn.innerText = '다시 하기 (Space바)';
             restartBtn.className = 'play-game-btn'; 
-            restartBtn.style.padding = '10px 20px';
-            restartBtn.style.fontSize = '16px';
+            restartBtn.style.padding = '15px 30px';
+            restartBtn.style.fontSize = '1.2rem';
             restartBtn.style.cursor = 'pointer';
-            restartBtn.style.marginBottom = '10px';
+            restartBtn.style.marginBottom = '15px';
 
             const closeBtn = document.createElement('button');
             closeBtn.innerText = '닫기';
-            closeBtn.style.padding = '5px 15px';
+            closeBtn.style.padding = '10px 20px';
             closeBtn.style.backgroundColor = 'transparent';
             closeBtn.style.color = '#fff';
             closeBtn.style.border = '1px solid #fff';
             closeBtn.style.borderRadius = '20px';
             closeBtn.style.cursor = 'pointer';
+            closeBtn.style.fontSize = '1rem';
 
             uiDiv.appendChild(title);
             uiDiv.appendChild(scoreText);
@@ -290,7 +303,6 @@ const MiniGames = {
                 this.stopGame();
             };
             
-            // 스페이스바로 재시작 지원
             const restartOnSpace = (e) => {
                 if (e.code === 'Space') {
                     document.removeEventListener('keydown', restartOnSpace);
@@ -300,10 +312,12 @@ const MiniGames = {
             };
             setTimeout(() => {
                 document.addEventListener('keydown', restartOnSpace);
-            }, 300); // 0.3초 딜레이 (죽자마자 눌리는 것 방지)
+            }, 300);
         }
     },
+
     tetris: {
+        overlay: null,
         container: null,
         canvas: null,
         ctx: null,
@@ -317,15 +331,16 @@ const MiniGames = {
         speed: 800,
         isPlaying: false,
 
-        init(parent) {
-            this.container = parent;
-            this.container.style.position = 'relative';
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            this.container = gameContainer;
 
-            if (document.getElementById('tetris-canvas')) document.getElementById('tetris-canvas').remove();
-            if (document.getElementById('tetris-over')) document.getElementById('tetris-over').remove();
+            // Make the game container taller for Tetris
+            this.container.style.width = '400px'; // Tetris is vertical
+            this.container.style.height = '800px';
 
-            // Calculate responsive block size based on container height
-            const containerHeight = this.container.clientHeight || 250;
+            const containerHeight = this.container.clientHeight || 600;
             this.blockSize = Math.floor(containerHeight / this.rows);
             if (this.blockSize < 10) this.blockSize = 10;
 
@@ -334,12 +349,11 @@ const MiniGames = {
             this.canvas.width = this.blockSize * this.cols;
             this.canvas.height = this.blockSize * this.rows;
             this.canvas.style.position = 'absolute';
-            // Center the canvas horizontally
             this.canvas.style.left = '50%';
             this.canvas.style.transform = 'translateX(-50%)';
             this.canvas.style.top = '0';
             this.canvas.style.backgroundColor = '#1a1a2e';
-            this.canvas.style.zIndex = '12';
+            this.canvas.style.border = '2px solid #333';
             this.container.appendChild(this.canvas);
             this.ctx = this.canvas.getContext('2d');
 
@@ -348,7 +362,6 @@ const MiniGames = {
             this.isPlaying = true;
             this.speed = 800;
             
-            // Add initial UI overlay
             const uiDiv = document.createElement('div');
             uiDiv.id = 'tetris-start-ui';
             uiDiv.style.position = 'absolute';
@@ -361,25 +374,25 @@ const MiniGames = {
             uiDiv.style.flexDirection = 'column';
             uiDiv.style.alignItems = 'center';
             uiDiv.style.justifyContent = 'center';
-            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-            uiDiv.style.borderRadius = '15px';
+            uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
 
-            const title = document.createElement('h3');
-            title.innerText = '테트리스';
+            const title = document.createElement('h2');
+            title.innerText = '🧩 테트리스';
             title.style.color = '#fff';
-            title.style.marginBottom = '20px';
+            title.style.fontSize = '2.5rem';
+            title.style.marginBottom = '30px';
 
             const startBtn = document.createElement('button');
             startBtn.innerText = '게임 시작 (Space바)';
             startBtn.className = 'play-game-btn'; 
-            startBtn.style.padding = '10px 20px';
-            startBtn.style.fontSize = '16px';
+            startBtn.style.padding = '15px 30px';
+            startBtn.style.fontSize = '1.2rem';
             startBtn.style.cursor = 'pointer';
+            startBtn.style.marginBottom = '15px';
             
             const closeBtn = document.createElement('button');
             closeBtn.innerText = '닫기';
-            closeBtn.style.marginTop = '10px';
-            closeBtn.style.padding = '5px 15px';
+            closeBtn.style.padding = '10px 20px';
             closeBtn.style.backgroundColor = 'transparent';
             closeBtn.style.color = '#fff';
             closeBtn.style.border = '1px solid #fff';
@@ -391,7 +404,6 @@ const MiniGames = {
             uiDiv.appendChild(closeBtn);
             this.container.appendChild(uiDiv);
 
-            // Bind keys, keeping reference for removal later
             this._keyHandler = this._keyHandler.bind(this);
             document.addEventListener('keydown', this._keyHandler);
 
@@ -511,6 +523,9 @@ const MiniGames = {
                         ctx.fillStyle=col;
                         ctx.fillRect(x*this.blockSize, y*this.blockSize,
                                      this.blockSize-1, this.blockSize-1);
+                        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                        ctx.strokeRect(x*this.blockSize, y*this.blockSize,
+                                     this.blockSize, this.blockSize);
                     }
                 }
             }
@@ -522,13 +537,15 @@ const MiniGames = {
                         ctx.fillRect((x+c)*this.blockSize,
                                      (y+r)*this.blockSize,
                                      this.blockSize-1, this.blockSize-1);
+                        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                        ctx.strokeRect((x+c)*this.blockSize, (y+r)*this.blockSize,
+                                     this.blockSize, this.blockSize);
                     }
                 }
             }
         },
 
         _keyHandler(e) {
-            // Prevent scrolling space when UI is active
             if(document.getElementById('tetris-start-ui')) {
                 if (e.code === 'Space') {
                     e.preventDefault();
@@ -539,7 +556,6 @@ const MiniGames = {
             }
 
             if(!this.isPlaying) return;
-
             if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Space'].includes(e.code)) {
                 e.preventDefault();
             }
@@ -569,7 +585,6 @@ const MiniGames = {
                     this.current.y++;
                 }
                 this.current.y--;
-                // Immediately merge and clear
                 this._merge();
                 this._clearLines();
                 this._spawnPiece();
@@ -578,7 +593,6 @@ const MiniGames = {
                     this._gameOver();
                     return;
                 }
-                // Reset interval so it doesn't immediately drop the next piece
                 clearTimeout(this.intervalId);
                 this.intervalId = setTimeout(()=>this._loop(), this.speed);
             }
@@ -590,38 +604,38 @@ const MiniGames = {
             clearTimeout(this.intervalId);
             document.removeEventListener('keydown', this._keyHandler);
             
-            const overlay=document.createElement('div');
-            overlay.id='tetris-over';
-            overlay.style.position='absolute';
-            overlay.style.top='0';
-            overlay.style.left='0';
-            overlay.style.width='100%';
-            overlay.style.height='100%';
-            overlay.style.background='rgba(0,0,0,0.8)';
-            overlay.style.display='flex';
-            overlay.style.flexDirection='column';
-            overlay.style.alignItems='center';
-            overlay.style.justifyContent='center';
-            overlay.style.zIndex='15';
-            overlay.style.borderRadius='15px';
+            const uiDiv = document.createElement('div');
+            uiDiv.id = 'tetris-over';
+            uiDiv.style.position='absolute';
+            uiDiv.style.top='0';
+            uiDiv.style.left='0';
+            uiDiv.style.width='100%';
+            uiDiv.style.height='100%';
+            uiDiv.style.background='rgba(0,0,0,0.85)';
+            uiDiv.style.display='flex';
+            uiDiv.style.flexDirection='column';
+            uiDiv.style.alignItems='center';
+            uiDiv.style.justifyContent='center';
+            uiDiv.style.zIndex='15';
 
             const title = document.createElement('h2');
             title.innerText = 'Game Over';
             title.style.color = '#fff';
-            title.style.marginBottom = '10px';
+            title.style.fontSize = '3rem';
+            title.style.marginBottom = '20px';
 
             const restartBtn = document.createElement('button');
             restartBtn.innerText = '다시 시작';
             restartBtn.className = 'play-game-btn'; 
-            restartBtn.style.padding = '10px 20px';
-            restartBtn.style.fontSize = '16px';
+            restartBtn.style.padding = '15px 30px';
+            restartBtn.style.fontSize = '1.2rem';
             restartBtn.style.cursor = 'pointer';
-            restartBtn.style.marginBottom = '10px';
+            restartBtn.style.marginBottom = '15px';
             restartBtn.onclick = () => this.restart();
 
             const closeBtn = document.createElement('button');
             closeBtn.innerText = '닫기';
-            closeBtn.style.padding = '5px 15px';
+            closeBtn.style.padding = '10px 20px';
             closeBtn.style.backgroundColor = 'transparent';
             closeBtn.style.color = '#fff';
             closeBtn.style.border = '1px solid #fff';
@@ -629,10 +643,10 @@ const MiniGames = {
             closeBtn.style.cursor = 'pointer';
             closeBtn.onclick = () => this.close();
 
-            overlay.appendChild(title);
-            overlay.appendChild(restartBtn);
-            overlay.appendChild(closeBtn);
-            this.container.appendChild(overlay);
+            uiDiv.appendChild(title);
+            uiDiv.appendChild(restartBtn);
+            uiDiv.appendChild(closeBtn);
+            this.container.appendChild(uiDiv);
         },
 
         restart(){
@@ -649,7 +663,7 @@ const MiniGames = {
         close(){
             const over=document.getElementById('tetris-over');
             if(over) over.remove();
-            if(this.canvas) this.canvas.remove();
+            if(this.overlay) this.overlay.remove();
             this.isPlaying=false;
             clearTimeout(this.intervalId);
             document.removeEventListener('keydown', this._keyHandler);
