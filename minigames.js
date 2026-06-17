@@ -1476,11 +1476,8 @@ const MiniGames = {
             // Shoot from center screen (NDC 0,0) using camera direction
             this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
 
-            // Collect all meshes inside target groups
-            const meshes = [];
-            this.targets.forEach(g => g.traverse(c => { if (c.isMesh) meshes.push(c); }));
-
-            const hits = this.raycaster.intersectObjects(meshes, false);
+            // Use recursive intersect on all enemy groups (easier to hit)
+            const hits = this.raycaster.intersectObjects(this.targets, true);
             if (hits.length > 0) {
                 // Find parent group
                 let obj = hits[0].object;
@@ -1511,7 +1508,7 @@ const MiniGames = {
             if (!this.isPlaying) return;
             this.animationId = requestAnimationFrame(this._animate);
 
-            const speed = 0.25;
+            const speed = 0.70; // faster movement
 
             // Movement direction based on camera horizontal angle
             if (this.moveForward || this.moveBackward || this.moveLeft || this.moveRight) {
@@ -1562,19 +1559,19 @@ const MiniGames = {
                 ud.rightLeg.rotation.x = 0;
             }
 
-            // Enemy AI: slowly walk toward player & bob
+            // Enemy AI: walk toward player (slower & stop further away → easier to shoot)
             this.targets.forEach(g => {
                 const toPlayer = new THREE.Vector3().subVectors(this.player.position, g.position);
                 toPlayer.y = 0;
                 const dist = toPlayer.length();
-                if (dist > 5) {
-                    toPlayer.normalize().multiplyScalar(0.06);
+                if (dist > 20) {
+                    toPlayer.normalize().multiplyScalar(0.04); // slower enemy
                     g.position.add(toPlayer);
                     g.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
                 }
-                // Bob animation
-                g.userData.walkTime += 0.08;
-                g.position.y = Math.sin(g.userData.walkTime) * 0.5;
+                // Gentle bob animation
+                g.userData.walkTime += 0.06;
+                g.position.y = Math.sin(g.userData.walkTime) * 0.3;
             });
 
             // Third-person camera: orbit around player
