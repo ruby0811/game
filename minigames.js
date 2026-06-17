@@ -2548,10 +2548,10 @@ const MiniGames = {
         combo: 0,
         maxCombo: 0,
         
-        hitLineY: 500, // y coordinate of the judgment line
-        noteSpeed: 8,
+        hitLineY: 500,
+        noteSpeed: 4,
         lastSpawnTime: 0,
-        spawnInterval: 400, // ms between notes
+        spawnInterval: 700,
         
         effects: [], // floating text like "PERFECT", "MISS"
 
@@ -2680,15 +2680,15 @@ const MiniGames = {
                 let result = '';
                 let color = '';
                 
-                if (diff < 20) {
+                if (diff < 50) {
                     result = 'PERFECT'; color = '#ffff00';
                     this.score += 100;
                     this.combo++;
-                } else if (diff < 50) {
+                } else if (diff < 100) {
                     result = 'GREAT'; color = '#00ff00';
                     this.score += 50;
                     this.combo++;
-                } else if (diff < 100) {
+                } else if (diff < 180) {
                     result = 'GOOD'; color = '#00ffff';
                     this.score += 10;
                     this.combo = 0;
@@ -2730,7 +2730,7 @@ const MiniGames = {
                     this.notes.push({ lane: l2, y: -20, hit: false });
                 }
                 // Vary interval slightly for rhythm feel
-                this.spawnInterval = 300 + Math.random() * 300; 
+                this.spawnInterval = 600 + Math.random() * 400; 
             }
         },
 
