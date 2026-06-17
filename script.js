@@ -213,7 +213,8 @@ const genresData = [
                 image: "images/철권.jpg",
                 def: "두 캐릭터가 고유 기술과 콤보를 활용해 1:1 대결을 벌이는 격투 게임입니다.",
                 features: ["콤보와 기술 연계", "타이밍과 카운터 중요", "토너먼트/랭킹 중심"],
-                examples: "철권, 스트리트 파이터, 대난투(슈퍼 스매시 브라더스)"
+                examples: "철권, 스트리트 파이터, 대난투(슈퍼 스매시 브라더스)",
+                hasGame: "fighting"
             },
             {
                 name: "플랫포머 (Platformer) 🏃‍♂️",

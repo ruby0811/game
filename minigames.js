@@ -1631,5 +1631,426 @@ const MiniGames = {
             }
             if (this.overlay) this.overlay.remove();
         }
+    },
+
+    fighting: {
+        overlay: null,
+        canvas: null,
+        ctx: null,
+        animationId: null,
+        isPlaying: false,
+        timeLeft: 60,
+        timerInterval: null,
+        keys: {},
+
+        player: null,
+        enemy: null,
+
+        // Settings
+        gravity: 0.7,
+        floorY: 0,
+
+        init() {
+            const { overlay, gameContainer } = MiniGames._createOverlay();
+            this.overlay = overlay;
+            
+            gameContainer.style.background = 'url("https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80&w=1000") center/cover';
+            gameContainer.style.position = 'relative';
+
+            this.canvas = document.createElement('canvas');
+            this.canvas.width = 800;
+            this.canvas.height = 450;
+            this.canvas.style.backgroundColor = 'rgba(0,0,0,0.5)';
+            this.canvas.style.borderRadius = '10px';
+            this.canvas.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
+            gameContainer.appendChild(this.canvas);
+
+            this.ctx = this.canvas.getContext('2d');
+            this.floorY = this.canvas.height - 50;
+
+            this._buildHUD(gameContainer);
+            this._buildStartUI(gameContainer);
+
+            this._onKeyDown = this._onKeyDown.bind(this);
+            this._onKeyUp = this._onKeyUp.bind(this);
+            window.addEventListener('keydown', this._onKeyDown);
+            window.addEventListener('keyup', this._onKeyUp);
+            
+            this._animate = this._animate.bind(this);
+        },
+
+        _buildHUD(container) {
+            const hud = document.createElement('div');
+            hud.style.cssText = 'position:absolute;top:20px;left:20px;right:20px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:10;';
+            
+            const hpStyle = 'width:300px;height:30px;background:#333;border:3px solid #fff;border-radius:15px;overflow:hidden;position:relative;';
+            const barStyle = 'height:100%;transition:width 0.1s;';
+
+            hud.innerHTML = `
+                <div style="text-align:left;">
+                    <div style="color:#fff;font-size:20px;font-weight:bold;margin-bottom:5px;text-shadow:1px 1px 2px #000;">PLAYER (P1)</div>
+                    <div style="${hpStyle}"><div id="fight-p1-hp" style="${barStyle}background:#00d2d3;width:100%;"></div></div>
+                </div>
+                <div id="fight-timer" style="color:#feca57;font-size:40px;font-weight:900;text-shadow:2px 2px 4px #000;margin:0 20px;">60</div>
+                <div style="text-align:right;">
+                    <div style="color:#fff;font-size:20px;font-weight:bold;margin-bottom:5px;text-shadow:1px 1px 2px #000;">CPU</div>
+                    <div style="${hpStyle}"><div id="fight-p2-hp" style="${barStyle}background:#ff6b6b;width:100%;float:right;"></div></div>
+                </div>
+            `;
+
+            const guide = document.createElement('div');
+            guide.style.cssText = 'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:14px;background:rgba(0,0,0,0.6);padding:10px 20px;border-radius:20px;pointer-events:none;text-align:center;line-height:1.5;';
+            guide.innerHTML = '<b>A/D</b>: 이동 &nbsp;|&nbsp; <b>W</b>: 점프<br><b>J</b>: 펀치 (약공격) &nbsp;|&nbsp; <b>K</b>: 킥 (강공격) &nbsp;|&nbsp; <b>S</b>: 가드';
+            
+            container.appendChild(hud);
+            container.appendChild(guide);
+        },
+
+        _buildStartUI(container) {
+            const ui = document.createElement('div');
+            ui.id = 'fight-start-ui';
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+            
+            ui.innerHTML = `
+                <h1 style="color:#ff4757;font-size:4rem;text-shadow:3px 3px 0 #fff;margin-bottom:20px;font-style:italic;">FIGHT!</h1>
+                <p style="color:#ccc;font-size:1.2rem;text-align:center;margin-bottom:30px;line-height:1.6;">
+                    상대방의 체력을 먼저 0으로 만드세요!<br>J(펀치)는 빠르고, K(킥)는 느리지만 데미지가 큽니다.
+                </p>
+                <button id="fight-start-btn" style="padding:15px 40px;font-size:1.5rem;font-weight:bold;background:#ff4757;color:#fff;border:none;border-radius:30px;cursor:pointer;box-shadow:0 5px 15px rgba(255,71,87,0.4);transition:transform 0.1s;">START</button>
+            `;
+            
+            container.appendChild(ui);
+            
+            document.getElementById('fight-start-btn').onclick = () => {
+                ui.remove();
+                this._startGame();
+            };
+        },
+
+        _startGame() {
+            this.isPlaying = true;
+            this.timeLeft = 60;
+            
+            // Create Fighter class inline
+            class Fighter {
+                constructor(x, y, color, isPlayer) {
+                    this.x = x;
+                    this.y = y;
+                    this.width = 50;
+                    this.height = 120;
+                    this.color = color;
+                    this.isPlayer = isPlayer;
+                    
+                    this.hp = 100;
+                    this.speed = 5;
+                    this.velY = 0;
+                    
+                    this.isJumping = false;
+                    this.isAttacking = false;
+                    this.isBlocking = false;
+                    this.attackType = null; // 'punch' or 'kick'
+                    this.attackTimer = 0;
+                    this.attackDuration = 0;
+                    this.attackCooldown = 0;
+                    this.facingRight = isPlayer;
+                    
+                    this.hitbox = { x: 0, y: 0, w: 0, h: 0, active: false };
+                }
+
+                draw(ctx) {
+                    ctx.save();
+                    
+                    // Body
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    
+                    // Head
+                    ctx.fillStyle = '#f1c40f'; // yellow head
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.width/2, this.y - 15, 20, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Block shield
+                    if (this.isBlocking) {
+                        ctx.strokeStyle = 'rgba(52, 152, 219, 0.8)';
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        if (this.facingRight) {
+                            ctx.moveTo(this.x + this.width + 10, this.y - 20);
+                            ctx.lineTo(this.x + this.width + 10, this.y + this.height);
+                        } else {
+                            ctx.moveTo(this.x - 10, this.y - 20);
+                            ctx.lineTo(this.x - 10, this.y + this.height);
+                        }
+                        ctx.stroke();
+                    }
+
+                    // Hitbox (Attack)
+                    if (this.hitbox.active) {
+                        ctx.fillStyle = this.attackType === 'kick' ? 'rgba(231, 76, 60, 0.7)' : 'rgba(241, 196, 15, 0.7)';
+                        ctx.fillRect(this.hitbox.x, this.hitbox.y, this.hitbox.w, this.hitbox.h);
+                    }
+
+                    ctx.restore();
+                }
+
+                attack(type) {
+                    if (this.isAttacking || this.attackCooldown > 0 || this.isBlocking) return;
+                    
+                    this.isAttacking = true;
+                    this.attackType = type;
+                    this.attackTimer = 0;
+                    
+                    if (type === 'punch') {
+                        this.attackDuration = 15; // fast
+                        this.attackCooldown = 10;
+                        this.hitbox.w = 60;
+                        this.hitbox.h = 20;
+                    } else if (type === 'kick') {
+                        this.attackDuration = 25; // slow
+                        this.attackCooldown = 20;
+                        this.hitbox.w = 80;
+                        this.hitbox.h = 30;
+                    }
+                }
+
+                update(gravity, floorY) {
+                    // Physics
+                    this.velY += gravity;
+                    this.y += this.velY;
+                    
+                    if (this.y + this.height >= floorY) {
+                        this.y = floorY - this.height;
+                        this.velY = 0;
+                        this.isJumping = false;
+                    }
+
+                    // Cooldowns
+                    if (this.attackCooldown > 0 && !this.isAttacking) {
+                        this.attackCooldown--;
+                    }
+
+                    // Attack logic
+                    if (this.isAttacking) {
+                        this.attackTimer++;
+                        
+                        // Activate hitbox in the middle of the animation
+                        if (this.attackTimer > this.attackDuration * 0.2 && this.attackTimer < this.attackDuration * 0.8) {
+                            this.hitbox.active = true;
+                            if (this.attackType === 'punch') {
+                                this.hitbox.x = this.facingRight ? this.x + this.width : this.x - this.hitbox.w;
+                                this.hitbox.y = this.y + 20;
+                            } else {
+                                this.hitbox.x = this.facingRight ? this.x + this.width : this.x - this.hitbox.w;
+                                this.hitbox.y = this.y + 60;
+                            }
+                        } else {
+                            this.hitbox.active = false;
+                        }
+
+                        if (this.attackTimer >= this.attackDuration) {
+                            this.isAttacking = false;
+                            this.hitbox.active = false;
+                        }
+                    } else {
+                        this.hitbox.active = false;
+                    }
+
+                    // Screen bounds
+                    this.x = Math.max(0, Math.min(800 - this.width, this.x));
+                }
+            }
+
+            this.player = new Fighter(150, 0, '#3498db', true);
+            this.enemy = new Fighter(600, 0, '#e74c3c', false);
+
+            this._updateHUD();
+
+            if (this.timerInterval) clearInterval(this.timerInterval);
+            this.timerInterval = setInterval(() => {
+                this.timeLeft--;
+                document.getElementById('fight-timer').innerText = this.timeLeft;
+                if (this.timeLeft <= 0) this._endGame(this.player.hp > this.enemy.hp ? 'player' : (this.player.hp < this.enemy.hp ? 'enemy' : 'draw'));
+            }, 1000);
+
+            if (this.animationId) cancelAnimationFrame(this.animationId);
+            this._animate();
+        },
+
+        _onKeyDown(e) { this.keys[e.code] = true; },
+        _onKeyUp(e) { this.keys[e.code] = false; },
+
+        _animate() {
+            if (!this.isPlaying) return;
+            this.animationId = requestAnimationFrame(this._animate);
+
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            
+            // Draw floor line
+            this.ctx.strokeStyle = '#fff';
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, this.floorY);
+            this.ctx.lineTo(this.canvas.width, this.floorY);
+            this.ctx.stroke();
+
+            // Handle Input (Player)
+            this.player.isBlocking = this.keys['KeyS'];
+            
+            if (!this.player.isAttacking && !this.player.isBlocking) {
+                if (this.keys['KeyA']) this.player.x -= this.player.speed;
+                if (this.keys['KeyD']) this.player.x += this.player.speed;
+                if (this.keys['KeyW'] && !this.player.isJumping) {
+                    this.player.velY = -15;
+                    this.player.isJumping = true;
+                }
+            }
+            if (this.keys['KeyJ']) this.player.attack('punch');
+            if (this.keys['KeyK']) this.player.attack('kick');
+
+            // Handle AI (Enemy)
+            this._updateAI();
+
+            // Update facing direction
+            if (this.player.x < this.enemy.x) {
+                this.player.facingRight = true;
+                this.enemy.facingRight = false;
+            } else {
+                this.player.facingRight = false;
+                this.enemy.facingRight = true;
+            }
+
+            // Update physics & attacks
+            this.player.update(this.gravity, this.floorY);
+            this.enemy.update(this.gravity, this.floorY);
+
+            // Collision Detection (Hitboxes)
+            this._checkHit(this.player, this.enemy);
+            this._checkHit(this.enemy, this.player);
+
+            // Draw
+            this.player.draw(this.ctx);
+            this.enemy.draw(this.ctx);
+        },
+
+        _updateAI() {
+            const dist = this.enemy.x - this.player.x;
+            const absDist = Math.abs(dist);
+
+            this.enemy.isBlocking = false;
+
+            if (this.enemy.isAttacking) return;
+
+            // Simple state machine
+            const r = Math.random();
+
+            if (absDist > 100) {
+                // Move towards player
+                if (dist > 0) this.enemy.x -= this.enemy.speed * 0.8;
+                else this.enemy.x += this.enemy.speed * 0.8;
+            } else {
+                // Close range: attack or block
+                if (this.player.isAttacking && r < 0.3) {
+                    this.enemy.isBlocking = true;
+                } else if (r < 0.05) {
+                    this.enemy.attack('punch');
+                } else if (r < 0.08) {
+                    this.enemy.attack('kick');
+                } else {
+                    // Slight retreat to maintain distance
+                    if (dist > 0) this.enemy.x += this.enemy.speed * 0.4;
+                    else this.enemy.x -= this.enemy.speed * 0.4;
+                }
+            }
+        },
+
+        _checkHit(attacker, defender) {
+            if (!attacker.hitbox.active || defender.hp <= 0) return;
+
+            // Simple AABB collision
+            const r1 = attacker.hitbox;
+            const r2 = { x: defender.x, y: defender.y, w: defender.width, h: defender.height };
+
+            if (r1.x < r2.x + r2.w &&
+                r1.x + r1.w > r2.x &&
+                r1.y < r2.y + r2.h &&
+                r1.y + r1.h > r2.y) {
+                
+                // Hit registered!
+                attacker.hitbox.active = false; // Prevent multiple hits from one attack
+
+                // Calculate damage
+                let damage = attacker.attackType === 'punch' ? 5 : 12;
+                
+                if (defender.isBlocking) {
+                    damage = Math.floor(damage / 4); // Block reduces damage significantly
+                    
+                    // Visual block effect
+                    this.ctx.fillStyle = 'blue';
+                    this.ctx.font = '20px Arial';
+                    this.ctx.fillText('BLOCK', defender.x, defender.y - 40);
+                } else {
+                    // Knockback
+                    defender.x += attacker.facingRight ? 30 : -30;
+                    defender.y -= 10;
+                    defender.isAttacking = false; // Interrupt attack
+                    
+                    // Visual hit effect
+                    this.ctx.fillStyle = 'red';
+                    this.ctx.font = '30px Arial';
+                    this.ctx.fillText('HIT!', defender.x, defender.y - 40);
+                }
+
+                defender.hp = Math.max(0, defender.hp - damage);
+                this._updateHUD();
+
+                if (defender.hp <= 0) {
+                    this._endGame(attacker.isPlayer ? 'player' : 'enemy');
+                }
+            }
+        },
+
+        _updateHUD() {
+            const p1 = document.getElementById('fight-p1-hp');
+            const p2 = document.getElementById('fight-p2-hp');
+            if (p1 && this.player) p1.style.width = `${this.player.hp}%`;
+            if (p2 && this.enemy) p2.style.width = `${this.enemy.hp}%`;
+        },
+
+        _endGame(winner) {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+
+            const ui = document.createElement('div');
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+            
+            let resultText = winner === 'player' ? 'YOU WIN!' : (winner === 'enemy' ? 'YOU LOSE...' : 'DRAW');
+            let resultColor = winner === 'player' ? '#00d2d3' : (winner === 'enemy' ? '#ff6b6b' : '#feca57');
+
+            ui.innerHTML = `
+                <h2 style="color:${resultColor};font-size:5rem;margin-bottom:15px;text-shadow:4px 4px 0 #000;">K.O.</h2>
+                <h3 style="color:#fff;font-size:2.5rem;margin-bottom:40px;">${resultText}</h3>
+            `;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = '나가기';
+            closeBtn.style.cssText = 'padding:12px 30px;background:transparent;color:#fff;border:2px solid #fff;border-radius:25px;cursor:pointer;font-size:1.2rem;transition:all 0.2s;';
+            closeBtn.onmouseover = () => { closeBtn.style.background = '#fff'; closeBtn.style.color = '#000'; };
+            closeBtn.onmouseout = () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#fff'; };
+            closeBtn.onclick = () => { ui.remove(); this.close(); };
+            
+            ui.appendChild(closeBtn);
+            document.querySelector('#fight-p1-hp').parentElement.parentElement.parentElement.appendChild(ui);
+        },
+
+        close() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+            window.removeEventListener('keydown', this._onKeyDown);
+            window.removeEventListener('keyup', this._onKeyUp);
+            if (this.overlay) this.overlay.remove();
+        }
     }
 };
