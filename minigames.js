@@ -2109,22 +2109,19 @@ const MiniGames = {
             }
 
             this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x000000);
-            this.scene.fog = new THREE.FogExp2(0x000000, 0.05); // VERY thick dark fog
+            this.scene.background = new THREE.Color(0x050505);
+            this.scene.fog = new THREE.FogExp2(0x000000, 0.025); // Thinner fog so we can see a bit
 
             this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 100);
             this.camera.position.y = 5;
 
-            // Flashlight attached to camera
-            this.flashlight = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.5, 1);
-            this.flashlight.position.set(0, 0, 0);
-            this.flashlight.target.position.set(0, 0, -1);
+            // Flashlight (PointLight is more reliable when attached to camera)
+            this.flashlight = new THREE.PointLight(0xffeedd, 2.0, 50);
             this.camera.add(this.flashlight);
-            this.camera.add(this.flashlight.target);
             this.scene.add(this.camera);
 
-            // Very faint ambient light
-            this.scene.add(new THREE.AmbientLight(0x111111));
+            // Ambient light
+            this.scene.add(new THREE.AmbientLight(0x222222));
 
             this.renderer = new THREE.WebGLRenderer({ antialias: true });
             this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -2434,17 +2431,67 @@ const MiniGames = {
             this.controls.unlock();
 
             const ui = document.createElement('div');
-            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#aa0000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;';
+            // Terrifying jump scare styling with screen shake
+            ui.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;overflow:hidden;';
             
-            // Scary face text
+            // Generate a scary face with CSS and random bloody text
             ui.innerHTML = `
-                <div style="color:#000;font-size:15rem;font-weight:900;line-height:0.8;">ಠ_ಠ</div>
-                <h1 style="color:#000;font-size:4rem;font-family:serif;margin-top:20px;">넌 도망칠 수 없다</h1>
+                <style>
+                    @keyframes shake {
+                        0% { transform: translate(20px, 20px) rotate(0deg); }
+                        10% { transform: translate(-20px, -30px) rotate(-2deg); }
+                        20% { transform: translate(-40px, 0px) rotate(2deg); }
+                        30% { transform: translate(40px, 30px) rotate(0deg); }
+                        40% { transform: translate(20px, -20px) rotate(2deg); }
+                        50% { transform: translate(-20px, 30px) rotate(-2deg); }
+                        60% { transform: translate(-40px, 20px) rotate(0deg); }
+                        70% { transform: translate(40px, -20px) rotate(-2deg); }
+                        80% { transform: translate(-20px, -20px) rotate(2deg); }
+                        90% { transform: translate(20px, 30px) rotate(0deg); }
+                        100% { transform: translate(0px, 0px) rotate(0deg); }
+                    }
+                    @keyframes flash {
+                        0%, 50%, 100% { background-color: #8a0303; }
+                        25%, 75% { background-color: #000; }
+                    }
+                    .scare-container {
+                        animation: flash 0.1s infinite, shake 0.1s infinite;
+                        width: 100%;
+                        height: 100%;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        background-image: radial-gradient(circle, transparent 20%, #000 100%);
+                    }
+                    .scary-eyes {
+                        font-size: 20rem;
+                        color: #ff0000;
+                        text-shadow: 0 0 50px #ff0000, 0 0 100px #ff0000;
+                        line-height: 0.5;
+                        font-weight: 900;
+                        transform: scaleY(2);
+                    }
+                    .scary-mouth {
+                        font-size: 10rem;
+                        color: #000;
+                        text-shadow: 0 0 20px #ff0000;
+                        margin-top: 50px;
+                        transform: scaleX(3);
+                    }
+                </style>
+                <div class="scare-container">
+                    <div class="scary-eyes">◉ ◉</div>
+                    <div class="scary-mouth">▃▃▃▃</div>
+                    <h1 style="color:#fff;font-size:8rem;font-family:serif;margin-top:50px;text-shadow:0 0 20px #ff0000;">잡 혔 다</h1>
+                </div>
             `;
 
             const closeBtn = document.createElement('button');
-            closeBtn.innerText = '나가기';
-            closeBtn.style.cssText = 'margin-top:50px;padding:15px 40px;background:#000;color:#aa0000;border:none;font-size:1.5rem;cursor:pointer;';
+            closeBtn.innerText = '비명 지르며 나가기';
+            closeBtn.style.cssText = 'position:absolute;bottom:50px;padding:20px 50px;background:#000;color:#ff0000;border:3px solid #ff0000;font-size:2rem;cursor:pointer;font-weight:bold;z-index:10000;';
+            closeBtn.onmouseover = () => { closeBtn.style.background = '#ff0000'; closeBtn.style.color = '#000'; };
+            closeBtn.onmouseout = () => { closeBtn.style.background = '#000'; closeBtn.style.color = '#ff0000'; };
             closeBtn.onclick = () => this.close();
             ui.appendChild(closeBtn);
 
