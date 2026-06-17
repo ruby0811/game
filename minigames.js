@@ -3321,5 +3321,290 @@ const MiniGames = {
             window.removeEventListener('keyup',   this._onKeyUp);
             if (this.overlay) this.overlay.remove();
         }
+    },
+
+    farming:{
+        TW:48,TH:48,COLS:16,ROWS:12,W:768,H:576,
+        CROPS:{
+            corn:      {emoji:'🌽',name:'옥수수',seedCost:0,  sell:50, days:3},
+            strawberry:{emoji:'🍓',name:'딸기',  seedCost:30, sell:150,days:5},
+            pumpkin:   {emoji:'🎃',name:'호박',  seedCost:80, sell:400,days:8},
+        },
+        LAYOUT:[
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,4,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,0],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,3,1,0],
+            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        ],
+        tiles:null,player:null,day:1,season:'Spring',gold:100,
+        inv:null,seeds:null,selectedSeed:'corn',
+        keys:{},msg:'',msgTimer:0,uiMode:null,
+        overlay:null,container:null,canvas:null,ctx:null,
+        animId:null,isPlaying:false,
+
+        init(){
+            const{overlay,gameContainer}=MiniGames._createOverlay();
+            this.overlay=overlay;this.container=gameContainer;
+            this.container.style.backgroundColor='#2d5a27';
+            this.canvas=document.createElement('canvas');
+            this.canvas.width=this.W;this.canvas.height=this.H;
+            this.canvas.style.cssText='display:block;width:100%;height:100%;';
+            this.container.appendChild(this.canvas);
+            this.ctx=this.canvas.getContext('2d');
+            this.day=1;this.season='Spring';this.gold=100;
+            this.inv={corn:0,strawberry:0,pumpkin:0};
+            this.seeds={corn:5,strawberry:0,pumpkin:0};
+            this.selectedSeed='corn';this.keys={};this.msg='';this.msgTimer=0;
+            this.uiMode=null;this.isPlaying=false;
+            this.tiles=this.LAYOUT.map(row=>row.map(t=>({type:t,state:t===2?'untilled':'',crop:null,days:0,watered:false})));
+            this.player={x:300,y:350,w:20,h:28,speed:3,facing:'down'};
+            this._onKeyDown=(e)=>{
+                this.keys[e.code]=true;
+                if(!this.isPlaying)return;
+                if(e.code==='KeyE')this._interact();
+                if(e.code==='KeyF')this._plant();
+                if(e.code==='KeyR')this._water();
+                if(e.code==='Digit1')this.selectedSeed='corn';
+                if(e.code==='Digit2')this.selectedSeed='strawberry';
+                if(e.code==='Digit3')this.selectedSeed='pumpkin';
+                if(e.code==='Escape'){this.uiMode=null;const s=this.container.querySelector('#farm-shop-ui');if(s)s.remove();}
+            };
+            this._onKeyUp=(e)=>{this.keys[e.code]=false;};
+            window.addEventListener('keydown',this._onKeyDown);
+            window.addEventListener('keyup',this._onKeyUp);
+            this._loop=this._loop.bind(this);
+            this.container.appendChild(this._buildStartUI());
+        },
+
+        _buildStartUI(){
+            const ui=document.createElement('div');
+            ui.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(20,40,10,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;';
+            ui.innerHTML='<h1 style="color:#7ec850;font-size:3rem;text-shadow:2px 2px #000;margin-bottom:12px;">🌾 나만의 농장</h1><p style="color:#ccc;text-align:center;line-height:2.2;margin-bottom:28px;font-size:1rem;"><b style="color:#7ec850;">WASD/방향키</b>: 이동 &nbsp;|&nbsp; <b style="color:#7ec850;">E</b>: 경작/수확/상호작용<br><b style="color:#7ec850;">F</b>: 씨앗 심기 &nbsp;|&nbsp; <b style="color:#7ec850;">R</b>: 물주기 &nbsp;|&nbsp; <b style="color:#7ec850;">1/2/3</b>: 씨앗 선택<br><span style="color:#f4d03f;">침대(💤) 앞 E → 다음 날 &nbsp;|&nbsp; 상점(🏪) 앞 E → 구매/판매</span></p>';
+            const row=document.createElement('div');row.style.cssText='display:flex;gap:16px;';
+            const sb=document.createElement('button');
+            sb.innerText='🌱 농사 시작!';
+            sb.style.cssText='padding:14px 36px;background:#4caf50;color:#fff;border:none;border-radius:25px;font-size:1.4rem;cursor:pointer;font-weight:bold;';
+            sb.onclick=()=>{ui.remove();this.isPlaying=true;this._loop();};
+            const eb=document.createElement('button');
+            eb.innerText='나가기';
+            eb.style.cssText='padding:14px 36px;background:transparent;color:#fff;border:2px solid #555;border-radius:25px;font-size:1.4rem;cursor:pointer;';
+            eb.onclick=()=>this.close();
+            row.appendChild(sb);row.appendChild(eb);ui.appendChild(row);return ui;
+        },
+
+        _getTileAt(px,py){
+            const col=Math.floor(px/this.TW),row=Math.floor(py/this.TH);
+            if(col<0||col>=this.COLS||row<0||row>=this.ROWS)return null;
+            return{col,row,tile:this.tiles[row][col]};
+        },
+        _getFacingTile(){
+            const p=this.player,step=this.TW*0.9;
+            let tx=p.x+p.w/2,ty=p.y+p.h/2;
+            if(p.facing==='up')ty-=step;else if(p.facing==='down')ty+=step;
+            else if(p.facing==='left')tx-=step;else tx+=step;
+            return this._getTileAt(tx,ty);
+        },
+        _interact(){
+            if(this.uiMode){this.uiMode=null;const s=this.container.querySelector('#farm-shop-ui');if(s)s.remove();return;}
+            const r=this._getFacingTile();if(!r)return;
+            const t=r.tile;
+            if(t.type===3){this._sleep();return;}
+            if(t.type===4){this.uiMode='shop';this._showShop();return;}
+            if(t.type===2){
+                if(t.state==='untilled'){t.state='dry';this._showMsg('⛏️ 밭을 갈았습니다!');}
+                else if(t.state==='ready'){const c=t.crop;this.inv[c]++;t.state='dry';t.crop=null;t.days=0;t.watered=false;this._showMsg(this.CROPS[c].emoji+' '+this.CROPS[c].name+' 수확! (총 '+this.inv[c]+'개)');}
+                else{this._showMsg('R: 물주기  F: 씨앗심기  성장 중이면 기다려주세요');}
+            }
+        },
+        _plant(){
+            if(this.uiMode)return;
+            const r=this._getFacingTile();if(!r)return;
+            const t=r.tile,s=this.selectedSeed;
+            if(t.type===2&&(t.state==='dry'||t.state==='wet')&&!t.crop){
+                if(this.seeds[s]<=0){this._showMsg('씨앗이 없습니다! 상점에서 구매하세요.');return;}
+                this.seeds[s]--;t.crop=s;t.days=0;
+                t.state=t.state==='wet'?'seeded_wet':'seeded_dry';
+                this._showMsg(this.CROPS[s].emoji+' '+this.CROPS[s].name+' 심기 완료! (남은 '+this.seeds[s]+'개)');
+            }else if(t.type===2&&t.state==='untilled'){this._showMsg('먼저 E키로 밭을 갈아야 합니다!');}
+        },
+        _water(){
+            if(this.uiMode)return;
+            const r=this._getFacingTile();if(!r)return;
+            const t=r.tile;
+            if(t.type===2&&t.state!=='untilled'){
+                if(t.watered){this._showMsg('이미 오늘 물을 주었습니다.');return;}
+                t.watered=true;
+                const m={dry:'wet',seeded_dry:'seeded_wet',growing_dry:'growing_wet'};
+                if(m[t.state])t.state=m[t.state];
+                this._showMsg('💧 물을 주었습니다!');
+            }
+        },
+        _sleep(){
+            this.day++;let grew=0;
+            for(let r=0;r<this.ROWS;r++)for(let c=0;c<this.COLS;c++){
+                const t=this.tiles[r][c];
+                if(t.type!==2||!t.crop)continue;
+                if(t.watered){t.days++;grew++;}
+                const prog=t.days/this.CROPS[t.crop].days;
+                if(t.days>=this.CROPS[t.crop].days)t.state='ready';
+                else if(prog>=0.4)t.state=t.watered?'growing_wet':'growing_dry';
+                t.watered=false;
+                const dm={wet:'dry',seeded_wet:'seeded_dry',growing_wet:'growing_dry'};
+                if(dm[t.state]&&t.state!=='ready')t.state=dm[t.state];
+            }
+            this._showMsg('💤 Day '+this.day+'! '+grew+'개 작물 성장');
+        },
+        _showMsg(text){this.msg=text;this.msgTimer=200;},
+
+        _showShop(){
+            const ex=this.container.querySelector('#farm-shop-ui');if(ex)ex.remove();
+            const shop=document.createElement('div');
+            shop.id='farm-shop-ui';
+            shop.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:420px;background:#1a0e05;border:3px solid #7a4e2d;border-radius:14px;padding:22px;z-index:30;color:#fff;font-family:sans-serif;max-height:92%;overflow-y:auto;';
+            const build=()=>{
+                shop.innerHTML='<h2 style="color:#f4d03f;text-align:center;margin:0 0 10px;">🏪 마을 상점</h2><p style="color:#aaa;text-align:center;margin:0 0 14px;">💰 소지금: <b style="color:#f4d03f;font-size:1.2rem;">'+this.gold+'G</b></p><h3 style="color:#7ec850;border-bottom:1px solid #333;padding-bottom:5px;margin:0 0 8px;">씨앗 구매 (3개)</h3>';
+                Object.entries(this.CROPS).forEach(([key,c])=>{
+                    const d=document.createElement('div');
+                    d.style.cssText='display:flex;justify-content:space-between;align-items:center;background:#2a1a0a;padding:8px 12px;border-radius:8px;margin-bottom:6px;';
+                    d.innerHTML='<span>'+c.emoji+' '+c.name+' <span style="color:#888;font-size:.85rem;">(보유 '+this.seeds[key]+')</span></span>';
+                    const btn=document.createElement('button');
+                    btn.innerText=c.seedCost===0?'무료':c.seedCost+'G';
+                    btn.style.cssText='padding:5px 14px;background:'+(this.gold>=c.seedCost?'#4caf50':'#555')+';color:#fff;border:none;border-radius:20px;cursor:pointer;font-size:.9rem;';
+                    btn.onclick=()=>{if(this.gold<c.seedCost){this._showMsg('돈이 부족합니다!');return;}this.gold-=c.seedCost;this.seeds[key]+=3;this._showMsg(c.emoji+' 씨앗 3개 구매!');build();};
+                    d.appendChild(btn);shop.appendChild(d);
+                });
+                const h3=document.createElement('h3');h3.style.cssText='color:#e67e22;border-bottom:1px solid #333;padding-bottom:5px;margin:14px 0 8px;';h3.innerText='🌾 작물 판매 (전량)';shop.appendChild(h3);
+                Object.entries(this.CROPS).forEach(([key,c])=>{
+                    const qty=this.inv[key],total=qty*c.sell;
+                    const d=document.createElement('div');
+                    d.style.cssText='display:flex;justify-content:space-between;align-items:center;background:#2a1a0a;padding:8px 12px;border-radius:8px;margin-bottom:6px;';
+                    d.innerHTML='<span>'+c.emoji+' '+c.name+' <span style="color:#888;font-size:.85rem;">x'+qty+'</span></span>';
+                    const btn=document.createElement('button');
+                    btn.innerText=qty>0?'+'+total+'G':'없음';
+                    btn.style.cssText='padding:5px 14px;background:'+(qty>0?'#e67e22':'#555')+';color:#fff;border:none;border-radius:20px;cursor:'+(qty>0?'pointer':'default')+';font-size:.9rem;';
+                    btn.onclick=()=>{if(!qty)return;this.gold+=total;this.inv[key]=0;this._showMsg('💰 '+total+'G 획득!');build();};
+                    d.appendChild(btn);shop.appendChild(d);
+                });
+                const cb=document.createElement('button');cb.innerText='닫기 (ESC)';
+                cb.style.cssText='width:100%;padding:10px;background:#333;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:1rem;margin-top:12px;';
+                cb.onclick=()=>{shop.remove();this.uiMode=null;};shop.appendChild(cb);
+            };
+            build();this.container.appendChild(shop);
+        },
+
+        _loop(){
+            if(!this.isPlaying)return;
+            this.animId=requestAnimationFrame(this._loop);
+            this._update();this._draw();
+        },
+        _update(){
+            if(this.uiMode)return;
+            const p=this.player;let dx=0,dy=0;
+            if(this.keys['ArrowLeft']||this.keys['KeyA']){dx=-1;p.facing='left';}
+            if(this.keys['ArrowRight']||this.keys['KeyD']){dx=1;p.facing='right';}
+            if(this.keys['ArrowUp']||this.keys['KeyW']){dy=-1;p.facing='up';}
+            if(this.keys['ArrowDown']||this.keys['KeyS']){dy=1;p.facing='down';}
+            if(dx&&dy){dx*=0.707;dy*=0.707;}
+            const sp=p.speed,nx=p.x+dx*sp,ny=p.y+dy*sp;
+            if(this._canMove(nx,p.y))p.x=Math.max(0,Math.min(this.W-p.w,nx));
+            if(this._canMove(p.x,ny))p.y=Math.max(0,Math.min(this.H-p.h,ny));
+            if(this.msgTimer>0)this.msgTimer--;
+        },
+        _canMove(x,y){
+            const p=this.player;
+            for(const[cx,cy]of[[x,y],[x+p.w,y],[x,y+p.h],[x+p.w,y+p.h]]){
+                const r=this._getTileAt(cx,cy);if(!r||r.tile.type===0)return false;
+            }
+            return true;
+        },
+        _draw(){
+            const ctx=this.ctx;ctx.clearRect(0,0,this.W,this.H);
+            for(let r=0;r<this.ROWS;r++)for(let c=0;c<this.COLS;c++)this._drawTile(ctx,this.tiles[r][c],c*this.TW,r*this.TH);
+            this._drawPlayer(ctx);this._drawHUD(ctx);
+            if(this.msgTimer>0){
+                ctx.globalAlpha=Math.min(1,this.msgTimer/30);
+                ctx.fillStyle='rgba(0,0,0,0.75)';ctx.fillRect(40,this.H-72,this.W-80,42);
+                ctx.fillStyle='#fff';ctx.font='bold 16px sans-serif';ctx.textAlign='center';
+                ctx.fillText(this.msg,this.W/2,this.H-46);ctx.globalAlpha=1;
+            }
+        },
+        _drawTile(ctx,tile,x,y){
+            const TW=this.TW,TH=this.TH;
+            if(tile.type===0){ctx.fillStyle='#5d4037';ctx.fillRect(x,y,TW,TH);ctx.fillStyle='#795548';ctx.fillRect(x+3,y+3,TW-6,TH-6);}
+            else if(tile.type===1){ctx.fillStyle='#4caf50';ctx.fillRect(x,y,TW,TH);ctx.fillStyle='#388e3c';ctx.fillRect(x+8,y+5,4,4);ctx.fillRect(x+28,y+18,4,4);ctx.fillRect(x+18,y+32,4,4);}
+            else if(tile.type===2){
+                const wet=tile.state.includes('wet')||tile.state==='ready';
+                ctx.fillStyle=wet?'#7a5230':tile.state==='untilled'?'#66bb6a':'#c8a86b';
+                ctx.fillRect(x,y,TW,TH);
+                if(tile.state!=='untilled'){ctx.fillStyle=wet?'#6a4220':'#b8986a';for(let i=0;i<3;i++)ctx.fillRect(x+4,y+8+i*14,TW-8,3);}
+                else{ctx.fillStyle='#43a047';ctx.fillRect(x+6,y+7,3,3);ctx.fillRect(x+30,y+22,3,3);}
+                if(tile.crop){
+                    const c=this.CROPS[tile.crop];
+                    ctx.save();ctx.translate(x+TW/2,y+TH/2);
+                    if(tile.state==='ready'){ctx.font='28px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(c.emoji,0,0);}
+                    else if(tile.state.startsWith('growing')){ctx.fillStyle='#2e7d32';ctx.fillRect(-2,-16,5,20);ctx.fillStyle='#66bb6a';ctx.beginPath();ctx.ellipse(-8,-14,8,5,-0.3,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(8,-10,8,5,0.3,0,Math.PI*2);ctx.fill();}
+                    else{ctx.fillStyle='#33691e';ctx.fillRect(-1,-9,3,12);ctx.fillStyle='#aed581';ctx.beginPath();ctx.ellipse(4,-9,6,4,0.5,0,Math.PI*2);ctx.fill();}
+                    ctx.restore();
+                }
+            }else if(tile.type===3){
+                ctx.fillStyle='#4caf50';ctx.fillRect(x,y,TW,TH);
+                ctx.fillStyle='#1565c0';ctx.fillRect(x+4,y+8,TW-8,TH-12);
+                ctx.fillStyle='#fff';ctx.fillRect(x+6,y+10,TW-12,12);
+                ctx.fillStyle='#e3f2fd';ctx.fillRect(x+6,y+22,TW-12,TH-28);
+                ctx.fillStyle='#0d47a1';ctx.fillRect(x+4,y+8,TW-8,4);
+                ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('💤',x+TW/2,y+TH-5);
+            }else if(tile.type===4){
+                ctx.fillStyle='#4caf50';ctx.fillRect(x,y,TW,TH);
+                ctx.fillStyle='#795548';ctx.fillRect(x+4,y+18,TW-8,TH-18);
+                ctx.fillStyle='#bf360c';ctx.beginPath();ctx.moveTo(x,y+18);ctx.lineTo(x+TW/2,y+2);ctx.lineTo(x+TW,y+18);ctx.closePath();ctx.fill();
+                ctx.fillStyle='#fffde7';ctx.fillRect(x+14,y+28,20,20);
+                ctx.font='14px serif';ctx.textAlign='center';ctx.fillText('🏪',x+TW/2,y+16);
+            }
+        },
+        _drawPlayer(ctx){
+            const p=this.player;
+            ctx.fillStyle='rgba(0,0,0,0.2)';ctx.beginPath();ctx.ellipse(p.x+p.w/2,p.y+p.h+3,p.w/2,4,0,0,Math.PI*2);ctx.fill();
+            ctx.fillStyle='#1565c0';ctx.fillRect(p.x+2,p.y+13,p.w-4,p.h-13);
+            ctx.fillStyle='#ffcc80';ctx.fillRect(p.x+4,p.y+1,p.w-8,14);
+            ctx.fillStyle='#333';
+            if(p.facing==='down'){ctx.fillRect(p.x+6,p.y+6,3,3);ctx.fillRect(p.x+11,p.y+6,3,3);}
+            else if(p.facing==='up'){ctx.fillStyle='#5d4037';ctx.fillRect(p.x+4,p.y+1,p.w-8,6);}
+            else if(p.facing==='left')ctx.fillRect(p.x+5,p.y+6,3,3);
+            else ctx.fillRect(p.x+12,p.y+6,3,3);
+            ctx.fillStyle='#5d4037';ctx.fillRect(p.x+3,p.y-3,p.w-6,5);ctx.fillRect(p.x+6,p.y-8,p.w-12,6);
+        },
+        _drawHUD(ctx){
+            const W=this.W,H=this.H;
+            ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,38);
+            ctx.font='bold 15px sans-serif';ctx.textAlign='left';ctx.fillStyle='#a5d6a7';ctx.fillText('🌸 '+this.season+' Day '+this.day,12,25);
+            ctx.textAlign='center';ctx.fillStyle='#f4d03f';ctx.fillText('💰 '+this.gold+'G',W/2,25);
+            const sl=['corn','strawberry','pumpkin'],em=['🌽','🍓','🎃'];
+            sl.forEach((k,i)=>{
+                const bx=W-150+i*48,by=4;
+                ctx.fillStyle=this.selectedSeed===k?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.35)';ctx.fillRect(bx,by,42,30);
+                if(this.selectedSeed===k){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(bx,by,42,30);}
+                ctx.font='17px serif';ctx.textAlign='center';ctx.fillStyle='#fff';ctx.fillText(em[i],bx+21,by+19);
+                ctx.font='10px sans-serif';ctx.fillStyle='#ddd';ctx.fillText(this.seeds[k],bx+21,by+29);
+            });
+            ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(0,H-30,W,30);
+            ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillStyle='#bbb';
+            ctx.fillText('E: 경작/수확/상호작용  F: 씨앗심기  R: 물주기  1/2/3: 씨앗선택  침대E: 다음날  상점E: 구매/판매',W/2,H-10);
+            ctx.textAlign='left';ctx.fillStyle='#a5d6a7';ctx.font='bold 12px sans-serif';
+            ctx.fillText('인벤: 🌽x'+this.inv.corn+' 🍓x'+this.inv.strawberry+' 🎃x'+this.inv.pumpkin,10,H-11);
+        },
+        close(){
+            this.isPlaying=false;cancelAnimationFrame(this.animId);
+            window.removeEventListener('keydown',this._onKeyDown);
+            window.removeEventListener('keyup',this._onKeyUp);
+            if(this.overlay)this.overlay.remove();
+        }
     }
 };
