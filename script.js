@@ -260,7 +260,8 @@ const genresData = [
                 image: "images/탄막슈팅.jpg",
                 def: "화면을 빽빽하게 채울 정도로 수천 개의 적 총알이 쏟아지는 극악 난이도의 비행 슈팅 장르입니다.",
                 features: ["극단적인 총알 회피", "아주 작은 피격 판정", "패턴 암기와 피지컬 요구"],
-                examples: "동방 프로젝트, 텐가이, 엔터 더 건전(일부)"
+                examples: "동방 프로젝트, 텐가이, 엔터 더 건전(일부)",
+                hasGame: "bulletHell"
             }
         ]
     },
