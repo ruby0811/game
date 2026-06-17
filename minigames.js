@@ -2148,7 +2148,7 @@ const MiniGames = {
 
             document.addEventListener('keydown', this._onKeyDown);
             document.addEventListener('keyup', this._onKeyUp);
-            this.renderer.domElement.addEventListener('click', this._onClick);
+            document.addEventListener('mousedown', this._onClick);
             window.addEventListener('resize', this._onResize);
 
             this._animate = this._animate.bind(this);
@@ -2163,7 +2163,12 @@ const MiniGames = {
 
             // Simple procedurally generated maze (grid based)
             const wallGeo = new THREE.BoxGeometry(10, 15, 10);
-            const wallMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a }); // Dark walls
+            const textureLoader = new THREE.TextureLoader();
+            const wallTex = textureLoader.load('images/horror_wall.png');
+            wallTex.wrapS = THREE.RepeatWrapping;
+            wallTex.wrapT = THREE.RepeatWrapping;
+            wallTex.repeat.set(1, 1);
+            const wallMat = new THREE.MeshLambertMaterial({ map: wallTex, color: 0x555555 }); // Textured Dark walls
             
             const gridSize = 10;
             const mazeMap = [];
@@ -2306,6 +2311,7 @@ const MiniGames = {
                 case 'ArrowLeft': case 'KeyA': this.moveLeft = true; break;
                 case 'ArrowDown': case 'KeyS': this.moveBackward = true; break;
                 case 'ArrowRight': case 'KeyD': this.moveRight = true; break;
+                case 'KeyE': this._onClick(); break;
             }
         },
 
@@ -2325,7 +2331,7 @@ const MiniGames = {
             this.raycaster.setFromCamera(new THREE.Vector2(0,0), this.camera);
             const intersects = this.raycaster.intersectObjects(this.notes);
             
-            if (intersects.length > 0 && intersects[0].distance < 15) {
+            if (intersects.length > 0 && intersects[0].distance < 30) {
                 const note = intersects[0].object;
                 this.scene.remove(note);
                 this.notes = this.notes.filter(n => n !== note);
@@ -2462,28 +2468,15 @@ const MiniGames = {
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
-                        background-image: radial-gradient(circle, transparent 20%, #000 100%);
-                    }
-                    .scary-eyes {
-                        font-size: 20rem;
-                        color: #ff0000;
-                        text-shadow: 0 0 50px #ff0000, 0 0 100px #ff0000;
-                        line-height: 0.5;
-                        font-weight: 900;
-                        transform: scaleY(2);
-                    }
-                    .scary-mouth {
-                        font-size: 10rem;
-                        color: #000;
-                        text-shadow: 0 0 20px #ff0000;
-                        margin-top: 50px;
-                        transform: scaleX(3);
+                        background-color: #000;
+                        background-image: url('images/horror_face.png');
+                        background-size: cover;
+                        background-position: center;
+                        background-blend-mode: hard-light;
                     }
                 </style>
                 <div class="scare-container">
-                    <div class="scary-eyes">◉ ◉</div>
-                    <div class="scary-mouth">▃▃▃▃</div>
-                    <h1 style="color:#fff;font-size:8rem;font-family:serif;margin-top:50px;text-shadow:0 0 20px #ff0000;">잡 혔 다</h1>
+                    <h1 style="color:#fff;font-size:8rem;font-family:serif;margin-top:50px;text-shadow:0 0 20px #ff0000;background:rgba(0,0,0,0.5);padding:20px;">잡 혔 다</h1>
                 </div>
             `;
 
@@ -2529,7 +2522,7 @@ const MiniGames = {
             window.removeEventListener('resize', this._onResize);
             
             if (this.renderer) {
-                this.renderer.domElement.removeEventListener('click', this._onClick);
+                document.removeEventListener('mousedown', this._onClick);
                 this.renderer.dispose();
             }
             if (this.controls) this.controls.unlock();
