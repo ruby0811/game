@@ -673,46 +673,79 @@ const MiniGames = {
     fps: {
         overlay: null,
         container: null,
-        canvas: null,
-        ctx: null,
         animationId: null,
         isPlaying: false,
         score: 0,
-        timeLeft: 15,
+        timeLeft: 30, // 30 seconds for 3D version
         timerInterval: null,
+        
+        // Three.js specific
+        scene: null,
+        camera: null,
+        renderer: null,
+        controls: null,
+        raycaster: null,
         targets: [],
         lastSpawnTime: 0,
-        spawnRate: 800,
-        mouseX: 400,
-        mouseY: 300,
-        isShooting: false,
-        shootTimer: 0,
         
+        // Movement
+        moveForward: false,
+        moveBackward: false,
+        moveLeft: false,
+        moveRight: false,
+        velocity: null,
+        direction: null,
+        prevTime: performance.now(),
+
         init() {
             const { overlay, gameContainer } = MiniGames._createOverlay();
             this.overlay = overlay;
             this.container = gameContainer;
 
-            this.container.style.width = '800px'; 
-            this.container.style.height = '600px';
+            this.container.style.width = '100vw'; 
+            this.container.style.height = '100vh';
+            this.container.style.maxWidth = '100vw';
+            this.container.style.maxHeight = '100vh';
+            this.container.style.borderRadius = '0'; // Fullscreen immersion
 
-            this.canvas = document.createElement('canvas');
-            this.canvas.id = 'fps-canvas';
-            this.canvas.width = this.container.clientWidth;
-            this.canvas.height = this.container.clientHeight;
-            this.canvas.style.position = 'absolute';
-            this.canvas.style.top = '0';
-            this.canvas.style.left = '0';
-            this.canvas.style.width = '100%';
-            this.canvas.style.height = '100%';
-            this.canvas.style.backgroundColor = '#2d3436';
-            this.canvas.style.cursor = 'crosshair';
+            if (!window.THREE) {
+                alert("Three.js 로딩 중 오류가 발생했습니다. 새로고침 후 다시 시도해주세요.");
+                this.close();
+                return;
+            }
+
+            // Init Three.js Scene
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color( 0x87ceeb ); // Sky blue
+            this.scene.fog = new THREE.Fog( 0x87ceeb, 0, 750 );
+
+            const light = new THREE.HemisphereLight( 0xeeeeff, 0x777788, 0.75 );
+            light.position.set( 0.5, 1, 0.75 );
+            this.scene.add( light );
+
+            this.camera = new THREE.PerspectiveCamera( 75, this.container.clientWidth / this.container.clientHeight, 1, 1000 );
             
-            this.ctx = this.canvas.getContext('2d');
-            this.container.appendChild(this.canvas);
+            this.controls = new THREE.PointerLockControls( this.camera, this.container );
 
+            // Floor
+            const floorGeometry = new THREE.PlaneGeometry( 2000, 2000, 100, 100 );
+            floorGeometry.rotateX( - Math.PI / 2 );
+            const floorMaterial = new THREE.MeshBasicMaterial( { color: 0x556655, wireframe: true } );
+            const floor = new THREE.Mesh( floorGeometry, floorMaterial );
+            this.scene.add( floor );
+
+            this.raycaster = new THREE.Raycaster();
+            this.velocity = new THREE.Vector3();
+            this.direction = new THREE.Vector3();
+
+            this.renderer = new THREE.WebGLRenderer( { antialias: true } );
+            this.renderer.setPixelRatio( window.devicePixelRatio );
+            this.renderer.setSize( this.container.clientWidth, this.container.clientHeight );
+            this.container.appendChild( this.renderer.domElement );
+
+            // UI
             const uiDiv = document.createElement('div');
-            uiDiv.id = 'fps-ui';
+            uiDiv.id = 'fps-start-ui';
             uiDiv.style.position = 'absolute';
             uiDiv.style.top = '0';
             uiDiv.style.left = '0';
@@ -726,19 +759,20 @@ const MiniGames = {
             uiDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
 
             const title = document.createElement('h2');
-            title.innerText = '🎯 몬스터 슈팅 훈련장';
+            title.innerText = '🎮 3D FPS 훈련장';
             title.style.color = '#fff';
-            title.style.fontSize = '2.5rem';
-            title.style.marginBottom = '10px';
+            title.style.fontSize = '3rem';
+            title.style.marginBottom = '20px';
 
             const desc = document.createElement('p');
-            desc.innerText = '나타나는 괴물들을 총으로 쏘세요!\n제한시간: 15초';
+            desc.innerText = 'WASD: 이동 | 마우스: 시선 변경 | 좌클릭: 사격\n화면을 클릭하면 마우스가 고정되며 게임이 시작됩니다.\n(마우스 고정을 해제하려면 ESC 키를 누르세요)\n제한시간: 30초';
             desc.style.color = '#ccc';
             desc.style.textAlign = 'center';
-            desc.style.marginBottom = '30px';
+            desc.style.marginBottom = '40px';
+            desc.style.lineHeight = '1.5';
 
             const startBtn = document.createElement('button');
-            startBtn.innerText = '훈련 시작';
+            startBtn.innerText = '화면을 클릭하여 시작';
             startBtn.className = 'play-game-btn'; 
             startBtn.style.padding = '15px 30px';
             startBtn.style.fontSize = '1.2rem';
@@ -753,6 +787,7 @@ const MiniGames = {
             closeBtn.style.border = '1px solid #fff';
             closeBtn.style.borderRadius = '20px';
             closeBtn.style.cursor = 'pointer';
+            closeBtn.onclick = () => this.close();
 
             uiDiv.appendChild(title);
             uiDiv.appendChild(desc);
@@ -760,210 +795,278 @@ const MiniGames = {
             uiDiv.appendChild(closeBtn);
             this.container.appendChild(uiDiv);
 
-            this.handleInput = this.handleInput.bind(this);
-            this.handleMove = this.handleMove.bind(this);
+            // Crosshair
+            const crosshair = document.createElement('div');
+            crosshair.innerText = '+';
+            crosshair.style.position = 'absolute';
+            crosshair.style.top = '50%';
+            crosshair.style.left = '50%';
+            crosshair.style.transform = 'translate(-50%, -50%)';
+            crosshair.style.color = 'lime';
+            crosshair.style.fontSize = '30px';
+            crosshair.style.pointerEvents = 'none';
+            crosshair.style.zIndex = '10';
+            this.container.appendChild(crosshair);
+
+            // HUD
+            const hud = document.createElement('div');
+            hud.id = 'fps-hud';
+            hud.style.position = 'absolute';
+            hud.style.top = '20px';
+            hud.style.left = '20px';
+            hud.style.right = '20px';
+            hud.style.display = 'flex';
+            hud.style.justifyContent = 'space-between';
+            hud.style.color = '#fff';
+            hud.style.fontSize = '24px';
+            hud.style.fontWeight = 'bold';
+            hud.style.pointerEvents = 'none';
+            hud.style.zIndex = '10';
             
-            this.canvas.addEventListener('mousedown', this.handleInput);
-            this.canvas.addEventListener('mousemove', this.handleMove);
-            this.canvas.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                this.handleMove(e.touches[0]);
-                this.handleInput(e.touches[0]);
-            }, {passive: false});
-            this.canvas.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                this.handleMove(e.touches[0]);
-            }, {passive: false});
+            const scoreSpan = document.createElement('span');
+            scoreSpan.id = 'fps-score';
+            scoreSpan.innerText = '🎯 처치: 0';
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.id = 'fps-time';
+            timeSpan.innerText = '⏱ 시간: 30초';
 
-            startBtn.onclick = () => {
-                uiDiv.remove();
-                this.startGame();
-            };
+            hud.appendChild(scoreSpan);
+            hud.appendChild(timeSpan);
+            this.container.appendChild(hud);
 
-            closeBtn.onclick = () => {
-                this.stopGame();
-            };
+            // Gun visual (simple HTML overlay)
+            const gun = document.createElement('div');
+            gun.id = 'fps-gun';
+            gun.innerText = '🔫';
+            gun.style.position = 'absolute';
+            gun.style.bottom = '-20px';
+            gun.style.right = '30%';
+            gun.style.fontSize = '120px';
+            gun.style.pointerEvents = 'none';
+            gun.style.transition = 'transform 0.05s';
+            gun.style.zIndex = '10';
+            this.container.appendChild(gun);
+
+            // Events
+            this.onKeyDown = this.onKeyDown.bind(this);
+            this.onKeyUp = this.onKeyUp.bind(this);
+            this.onMouseClick = this.onMouseClick.bind(this);
+            this.onWindowResize = this.onWindowResize.bind(this);
+
+            document.addEventListener( 'keydown', this.onKeyDown );
+            document.addEventListener( 'keyup', this.onKeyUp );
+            window.addEventListener( 'resize', this.onWindowResize );
+
+            uiDiv.addEventListener( 'click', () => {
+                this.controls.lock();
+            });
+
+            this.controls.addEventListener( 'lock', () => {
+                uiDiv.style.display = 'none';
+                if (!this.isPlaying) this.startGame();
+            });
+
+            this.controls.addEventListener( 'unlock', () => {
+                if (this.isPlaying) {
+                    uiDiv.style.display = 'flex';
+                    uiDiv.querySelector('h2').innerText = '일시 정지';
+                    uiDiv.querySelector('p').innerText = '화면을 클릭하여 계속하기';
+                }
+            });
+
+            document.addEventListener('mousedown', this.onMouseClick);
+            
+            this.animate = this.animate.bind(this);
         },
 
         startGame() {
             this.isPlaying = true;
             this.score = 0;
-            this.timeLeft = 15;
+            this.timeLeft = 30;
+            this.prevTime = performance.now();
+            
+            // Clear existing targets
+            this.targets.forEach(t => this.scene.remove(t));
             this.targets = [];
-            this.lastSpawnTime = performance.now();
+
+            this.updateHUD();
             
             if (this.animationId) cancelAnimationFrame(this.animationId);
             if (this.timerInterval) clearInterval(this.timerInterval);
 
             this.timerInterval = setInterval(() => {
-                this.timeLeft--;
-                if (this.timeLeft <= 0) {
-                    this.gameOver();
+                if (this.controls.isLocked) {
+                    this.timeLeft--;
+                    this.updateHUD();
+                    if (this.timeLeft <= 0) {
+                        this.gameOver();
+                    }
                 }
             }, 1000);
 
-            this.loop(performance.now());
+            // Add initial targets
+            for(let i=0; i<10; i++) this.spawnTarget();
+
+            this.animate();
         },
 
-        stopGame() {
-            this.isPlaying = false;
-            cancelAnimationFrame(this.animationId);
-            clearInterval(this.timerInterval);
-            this.canvas.removeEventListener('mousedown', this.handleInput);
-            this.canvas.removeEventListener('mousemove', this.handleMove);
-            if(this.overlay) {
-                this.overlay.remove();
+        onKeyDown( event ) {
+            switch ( event.code ) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    this.moveForward = true;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    this.moveLeft = true;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    this.moveBackward = true;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    this.moveRight = true;
+                    break;
             }
         },
 
-        handleMove(e) {
-            const rect = this.canvas.getBoundingClientRect();
-            this.mouseX = e.clientX - rect.left;
-            this.mouseY = e.clientY - rect.top;
-        },
-
-        handleInput(e) {
-            if (!this.isPlaying) return;
-            
-            const rect = this.canvas.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const clickY = e.clientY - rect.top;
-            
-            this.mouseX = clickX;
-            this.mouseY = clickY;
-            this.isShooting = true;
-            this.shootTimer = 10; // frames for recoil animation
-
-            for (let i = this.targets.length - 1; i >= 0; i--) {
-                const t = this.targets[i];
-                if (t.hit) continue;
-                const dist = Math.hypot(t.x - clickX, t.y - clickY);
-                if (dist <= t.radius * 1.5) { // generous hit box for emojis
-                    this.score++;
-                    t.hit = true;
-                    t.radius *= 1.2;
-                    break; // Only hit one per click
-                }
+        onKeyUp( event ) {
+            switch ( event.code ) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    this.moveForward = false;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    this.moveLeft = false;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    this.moveBackward = false;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    this.moveRight = false;
+                    break;
             }
         },
 
-        loop(timestamp) {
-            if (!this.isPlaying) return;
-            this.update(timestamp);
-            this.draw();
-            this.animationId = requestAnimationFrame(this.loop.bind(this));
-        },
+        onMouseClick(event) {
+            if (!this.controls.isLocked || !this.isPlaying) return;
 
-        update(timestamp) {
-            if (timestamp - this.lastSpawnTime > this.spawnRate) {
+            // Recoil animation
+            const gun = document.getElementById('fps-gun');
+            if(gun) {
+                gun.style.transform = 'translateY(30px) rotate(-10deg)';
+                setTimeout(() => {
+                    gun.style.transform = 'translateY(0) rotate(0deg)';
+                }, 100);
+            }
+
+            // Raycast
+            this.raycaster.setFromCamera( new THREE.Vector2(0,0), this.camera ); // center of screen
+
+            const intersects = this.raycaster.intersectObjects( this.targets );
+
+            if ( intersects.length > 0 ) {
+                const hitObj = intersects[ 0 ].object;
+                this.score++;
+                this.updateHUD();
+                
+                // Remove hit target
+                this.scene.remove(hitObj);
+                this.targets = this.targets.filter(t => t !== hitObj);
+                
+                // Spawn a new one
                 this.spawnTarget();
-                this.lastSpawnTime = timestamp;
-                this.spawnRate = Math.max(400, this.spawnRate - 20); 
-            }
-
-            if (this.isShooting) {
-                this.shootTimer--;
-                if (this.shootTimer <= 0) this.isShooting = false;
-            }
-
-            for (let i = this.targets.length - 1; i >= 0; i--) {
-                const t = this.targets[i];
-                if (!t.hit) {
-                    const age = timestamp - t.spawnTime;
-                    if (age > t.lifespan) {
-                        this.targets.splice(i, 1);
-                    } else {
-                        const lifePercent = age / t.lifespan;
-                        t.currentRadius = t.radius * (1 - lifePercent);
-                    }
-                } else {
-                    t.fadeTimer -= 16;
-                    if (t.fadeTimer <= 0) {
-                        this.targets.splice(i, 1);
-                    }
-                }
             }
         },
 
         spawnTarget() {
-            const radius = 30 + Math.random() * 20; 
-            const x = radius + Math.random() * (this.canvas.width - radius * 2);
-            const y = radius + Math.random() * (this.canvas.height - radius * 2);
-            
-            const monsters = ['👾', '🧟', '👽', '👹', '👻'];
-            const monster = monsters[Math.floor(Math.random() * monsters.length)];
+            const geometry = new THREE.BoxGeometry( 10, 10, 10 );
+            const material = new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } );
+            const cube = new THREE.Mesh( geometry, material );
 
-            this.targets.push({
-                x, y, 
-                radius, 
-                currentRadius: radius,
-                spawnTime: performance.now(),
-                lifespan: 1500 + Math.random() * 1000, 
-                hit: false,
-                fadeTimer: 300, 
-                monster
-            });
+            cube.position.x = ( Math.random() - 0.5 ) * 200;
+            cube.position.y = Math.random() * 50 + 10;
+            cube.position.z = ( Math.random() - 0.5 ) * 200;
+            
+            // Keep targets away from start position (0,0,0)
+            if (cube.position.length() < 30) {
+                cube.position.z -= 40;
+            }
+
+            this.scene.add( cube );
+            this.targets.push( cube );
         },
 
-        draw() {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        updateHUD() {
+            const s = document.getElementById('fps-score');
+            const t = document.getElementById('fps-time');
+            if (s) s.innerText = `🎯 처치: ${this.score}`;
+            if (t) {
+                t.innerText = `⏱ 시간: ${this.timeLeft}초`;
+                t.style.color = this.timeLeft <= 5 ? '#ff4757' : '#fff';
+            }
+        },
 
-            // Draw targets (monsters)
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            for (const t of this.targets) {
-                if (t.hit) {
-                    this.ctx.font = `${t.radius * 2}px sans-serif`;
-                    this.ctx.globalAlpha = Math.max(0, t.fadeTimer / 300);
-                    this.ctx.fillText('💥', t.x, t.y);
-                    this.ctx.globalAlpha = 1.0;
-                } else {
-                    this.ctx.font = `${Math.max(1, t.currentRadius * 2)}px sans-serif`;
-                    this.ctx.fillText(t.monster, t.x, t.y);
+        animate() {
+            if (!this.isPlaying) return;
+            this.animationId = requestAnimationFrame( this.animate );
+
+            const time = performance.now();
+
+            if ( this.controls.isLocked === true ) {
+                const delta = ( time - this.prevTime ) / 1000;
+
+                this.velocity.x -= this.velocity.x * 10.0 * delta;
+                this.velocity.z -= this.velocity.z * 10.0 * delta;
+
+                this.direction.z = Number( this.moveForward ) - Number( this.moveBackward );
+                this.direction.x = Number( this.moveRight ) - Number( this.moveLeft );
+                this.direction.normalize(); // consistent movements
+
+                const moveSpeed = 400.0;
+                if ( this.moveForward || this.moveBackward ) this.velocity.z -= this.direction.z * moveSpeed * delta;
+                if ( this.moveLeft || this.moveRight ) this.velocity.x -= this.direction.x * moveSpeed * delta;
+
+                this.controls.moveRight( - this.velocity.x * delta );
+                this.controls.moveForward( - this.velocity.z * delta );
+                
+                // Keep camera above ground
+                if (this.controls.getObject().position.y < 10) {
+                    this.controls.getObject().position.y = 10;
                 }
             }
 
-            // Draw Gun
-            this.ctx.save();
-            // Gun follows mouse X, stays at bottom
-            const gunX = this.canvas.width / 2 + (this.mouseX - this.canvas.width / 2) * 0.3 + 50;
-            let gunY = this.canvas.height + 20;
-            
-            // Recoil animation
-            if (this.isShooting) {
-                gunY += 30; // recoil down
+            // Slowly rotate targets
+            for (let t of this.targets) {
+                t.rotation.x += 0.01;
+                t.rotation.y += 0.02;
             }
 
-            this.ctx.font = '150px sans-serif';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'bottom';
-            this.ctx.fillText('🔫', gunX, gunY);
-            
-            // Muzzle flash
-            if (this.isShooting) {
-                this.ctx.font = '80px sans-serif';
-                this.ctx.fillText('✨', gunX - 60, gunY - 120);
-            }
-            this.ctx.restore();
+            this.prevTime = time;
+            this.renderer.render( this.scene, this.camera );
+        },
 
-            // UI overlay
-            this.ctx.fillStyle = '#fff';
-            this.ctx.font = 'bold 24px "Pretendard", sans-serif';
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'top';
-            this.ctx.fillText(`🎯 처치: ${this.score}`, 20, 20);
-            
-            this.ctx.textAlign = 'right';
-            this.ctx.fillStyle = this.timeLeft <= 3 ? '#ff4757' : '#fff';
-            this.ctx.fillText(`⏱ 시간: ${this.timeLeft}초`, this.canvas.width - 20, 20);
-            this.ctx.textAlign = 'left';
+        onWindowResize() {
+            if (!this.camera || !this.renderer) return;
+            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize( this.container.clientWidth, this.container.clientHeight );
         },
 
         gameOver() {
             this.isPlaying = false;
+            this.controls.unlock();
             cancelAnimationFrame(this.animationId);
             clearInterval(this.timerInterval);
             
+            const startUi = document.getElementById('fps-start-ui');
+            if(startUi) startUi.remove();
+
             const uiDiv = document.createElement('div');
             uiDiv.id = 'fps-over';
             uiDiv.style.position='absolute';
@@ -979,47 +1082,45 @@ const MiniGames = {
             uiDiv.style.zIndex='15';
 
             const title = document.createElement('h2');
-            title.innerText = '훈련 종료!';
+            title.innerText = '미션 종료!';
             title.style.color = '#e94560';
             title.style.fontSize = '3rem';
             title.style.marginBottom = '20px';
 
             const scoreText = document.createElement('p');
-            scoreText.innerText = `최종 처치: ${this.score}마리 몬스터`;
+            scoreText.innerText = `최종 처치: ${this.score}개의 타겟`;
             scoreText.style.color = '#fff';
             scoreText.style.marginBottom = '30px';
             scoreText.style.fontSize = '1.5rem';
 
-            const restartBtn = document.createElement('button');
-            restartBtn.innerText = '다시 훈련하기';
-            restartBtn.className = 'play-game-btn'; 
-            restartBtn.style.padding = '15px 30px';
-            restartBtn.style.fontSize = '1.2rem';
-            restartBtn.style.cursor = 'pointer';
-            restartBtn.style.marginBottom = '15px';
-            restartBtn.onclick = () => {
-                uiDiv.remove();
-                this.startGame();
-            };
-
             const closeBtn = document.createElement('button');
-            closeBtn.innerText = '닫기';
+            closeBtn.innerText = '나가기';
             closeBtn.style.padding = '10px 20px';
             closeBtn.style.backgroundColor = 'transparent';
             closeBtn.style.color = '#fff';
             closeBtn.style.border = '1px solid #fff';
             closeBtn.style.borderRadius = '20px';
             closeBtn.style.cursor = 'pointer';
-            closeBtn.onclick = () => {
-                uiDiv.remove();
-                this.stopGame();
-            };
+            closeBtn.onclick = () => this.close();
 
             uiDiv.appendChild(title);
             uiDiv.appendChild(scoreText);
-            uiDiv.appendChild(restartBtn);
             uiDiv.appendChild(closeBtn);
             this.container.appendChild(uiDiv);
+        },
+
+        close() {
+            this.isPlaying = false;
+            cancelAnimationFrame(this.animationId);
+            clearInterval(this.timerInterval);
+            
+            document.removeEventListener( 'keydown', this.onKeyDown );
+            document.removeEventListener( 'keyup', this.onKeyUp );
+            window.removeEventListener( 'resize', this.onWindowResize );
+            document.removeEventListener('mousedown', this.onMouseClick);
+            
+            if(this.controls) this.controls.unlock();
+            if(this.overlay) this.overlay.remove();
         }
     }
 };
